@@ -75,6 +75,24 @@ RUN pip install "misaki[en]" \
  && pip install -r requirements.txt \
  && pip install librosa
 
+# ---------- 6 bis. Replafonner ce que requirements.txt laisse ouvert ----------
+# Le depot amont se contredit : son README impose torch 2.4.1, mais son
+# requirements.txt ecrit "diffusers>=0.31.0" sans plafond. pip prend donc
+# la derniere version, qui appelle torch.accelerator -- une API apparue
+# avec torch 2.6. L'import casse net :
+#
+#     AttributeError: module 'torch' has no attribute 'accelerator'
+#
+# On replafonne apres coup plutot que d'editer requirements.txt : toucher
+# au fichier d'un paquet amont a deja produit un paquet anonyme
+# UNKNOWN-0.0.0 sur un autre worker, et le symptome etait meconnaissable.
+# transformers et accelerate sont ramenes au minimum demande, pour la
+# meme raison -- leurs versions recentes supposent un torch plus neuf.
+RUN pip install "diffusers==0.31.0" "transformers==4.49.0" "accelerate==1.1.1" \
+ && python -c "import torch, diffusers, transformers; \
+print('torch', torch.__version__, '| diffusers', diffusers.__version__, \
+'| transformers', transformers.__version__)"
+
 # ---------- 7. Dependances du worker, et etat final deterministe ----------
 # Trois pieges, tous deja payes sur les workers precedents :
 #
