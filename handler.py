@@ -88,8 +88,29 @@ def _resoudre_poids():
             "InfiniteTalk/. Lancer download_weights.sh sur le volume reseau."
             % ", ".join(r for r in _RACINES if r))
 
-    quant = os.environ.get("IT_QUANT") or None          # fp8 | int8 | None
+    quant = os.environ.get("IT_QUANT") or None          # fp8 | None
     variante = os.environ.get("IT_VARIANTE", "single")  # single | multi
+    lora = os.environ.get("IT_LORA") or None
+
+    # int8 existe pour le DiT mais pas pour le T5 : le depot amont ne
+    # publie que t5_fp8.safetensors, et le chargeur T5 va le chercher des
+    # que la quantification est active. int8 echouerait sur un fichier
+    # absent, apres plusieurs minutes de chargement.
+    if quant and quant != "fp8":
+        raise RuntimeError(
+            "IT_QUANT=%s non utilisable : le depot amont ne publie pas de "
+            "t5_%s.safetensors, et le chargeur T5 l'exige des que la "
+            "quantification est active. Seul fp8 est complet." % (quant, quant))
+
+    # La quantification et la LoRA s'excluent cote amont
+    # (multitalk.py : `if lora_dir is not None and quant is None`). Le
+    # dire ici plutot que de laisser la LoRA etre ignoree en silence.
+    if quant and lora:
+        raise RuntimeError(
+            "IT_QUANT et IT_LORA sont incompatibles : le pipeline amont "
+            "ignore la LoRA quand la quantification est active. Choisir "
+            "soit fp8 (~32 Go de poids, 40 pas), soit bf16 + LoRA "
+            "(~93 Go, 8 pas).")
 
     poids = {
         "ckpt_dir": os.path.join(racine, "Wan2.1-I2V-14B-480P"),
@@ -98,17 +119,26 @@ def _resoudre_poids():
             racine, "InfiniteTalk", variante, "infinitetalk.safetensors"),
         "quant_dir": None,
         "quant": quant,
-        "lora_dir": os.environ.get("IT_LORA") or None,
+        "lora_dir": lora,
     }
-    if quant:
-        poids["quant_dir"] = os.path.join(
-            racine, "InfiniteTalk", "quant_models",
-            "infinitetalk_%s_%s.safetensors" % (variante, quant))
 
-    for cle in ("ckpt_dir", "wav2vec_dir", "infinitetalk_dir", "quant_dir"):
-        chemin = poids[cle]
+    # En mode quantifie, infinitetalk_dir n'est jamais lu : on ne le
+    # verifie donc pas, sinon le jeu compact serait refuse a tort.
+    a_verifier = ["ckpt_dir", "wav2vec_dir"]
+    if quant:
+        quant_models = os.path.join(racine, "InfiniteTalk", "quant_models")
+        poids["quant_dir"] = os.path.join(
+            quant_models, "infinitetalk_%s_%s.safetensors" % (variante, quant))
+        a_verifier += ["quant_dir", "t5_quant"]
+        poids["t5_quant"] = os.path.join(quant_models, "t5_%s.safetensors" % quant)
+    else:
+        a_verifier.append("infinitetalk_dir")
+
+    for cle in a_verifier:
+        chemin = poids.get(cle)
         if chemin and not os.path.exists(chemin):
             raise RuntimeError("%s manquant : %s" % (cle, chemin))
+    poids.pop("t5_quant", None)
     return racine, poids
 
 

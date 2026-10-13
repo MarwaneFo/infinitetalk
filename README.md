@@ -36,34 +36,83 @@ descend a 8 pas au lieu de 40.
 > comme demande ; la structure (Dockerfile, handler, journal de build) se
 > transpose presque telle quelle si vous voulez changer de modele.
 
-## 1. Les poids : 93 Go sur un volume reseau
+## 1. Les poids : 32 Go ou 93 Go, et le choix compte
 
 Ils ne sont **pas** dans l'image Docker : une image de cette taille ne se
-telecharge pas a chaque demarrage de worker.
+telecharge pas a chaque demarrage de worker. Deux jeux sont possibles, et
+ce n'est pas qu'une question de place.
+
+### `MODE=compact` — environ 32 Go
+
+Le modele quantifie en fp8. Le pipeline ne lit alors **que** le fichier
+quantifie : les 7 fragments bf16 (65,6 Go) et `infinitetalk.safetensors`
+(9,9 Go) ne sont jamais ouverts, seul `config.json` l'est. Le T5 prend
+lui aussi sa version fp8, 6,73 Go au lieu de 11,36.
+
+| Fichier | Taille |
+|---|---|
+| `InfiniteTalk/quant_models/infinitetalk_single_fp8.safetensors` | 19,50 Go |
+| `InfiniteTalk/quant_models/t5_fp8.safetensors` | 6,73 Go |
+| `Wan2.1/models_clip_...pth` | 4,77 Go |
+| `Wan2.1/Wan2.1_VAE.pth` | 0,51 Go |
+| `Wan2.1/config.json` + jetonniseurs | 0,05 Go |
+| `chinese-wav2vec2-base` | 0,40 Go |
+| **total** | **~32 Go** |
+
+Un volume de **50 Go** suffit. Mais la LoRA FusionX est refusee quand la
+quantification est active — le pipeline amont l'ignore
+(`if lora_dir is not None and quant is None`). On reste donc a 40 pas
+d'echantillonnage, sans le levier qui les ramene a 8.
+
+### `MODE=complet` — environ 93 Go
+
+Les poids d'origine en bf16.
 
 | Jeu | Taille |
 |---|---|
-| `Wan2.1-I2V-14B-480P` | 82,3 Go |
-| `InfiniteTalk/single/infinitetalk.safetensors` | 9,9 Go |
-| `chinese-wav2vec2-base` | 0,4 Go |
-| **total** | **~92,6 Go** |
+| `Wan2.1-I2V-14B-480P` | 82,30 Go |
+| `InfiniteTalk/single/infinitetalk.safetensors` | 9,95 Go |
+| `chinese-wav2vec2-base` | 0,40 Go |
+| **total** | **~92,65 Go** |
 
-Creer un volume reseau de **120 Go** (le telechargement passe par un cache
-temporaire), l'attacher a un pod, puis :
+Un volume de **120 Go** (le telechargement passe par un cache temporaire).
+En echange, `LORA=1` devient possible, et avec elle **8 pas au lieu de 40**.
+
+### Lequel choisir
+
+| | compact (fp8) | complet (bf16 + LoRA) |
+|---|---|---|
+| Volume | 50 Go | 120 Go |
+| Pas d'echantillonnage | 40 | **8** |
+| VRAM | tient plus facilement en 48 Go | 48 Go avec `IT_LOW_VRAM=1` |
+| Qualite | legere perte a la quantification | reference, mais la LoRA derive en couleur au-dela d'une minute |
+
+Le stockage reseau se compte en quelques dollars par mois ; le temps de
+GPU, en dizaines. Si le but est de produire du volume, **`complet` avec
+la LoRA coute moins cher a l'arrivee**, malgre le volume plus gros. Pour
+un simple essai, `compact` suffit et va plus vite a installer.
+
+Verifier le tarif du volume dans la console avant de trancher : il change.
+
+### Installation
 
 ```bash
-bash download_weights.sh /runpod-volume/infinitetalk/weights
-```
+# jeu compact, 32 Go
+MODE=compact bash download_weights.sh /runpod-volume/infinitetalk/weights
 
-Options utiles :
-
-```bash
-QUANT=fp8 bash download_weights.sh ...   # +19,5 Go, pour moins de 80 Go de VRAM
-LORA=1    bash download_weights.sh ...   # +1,2 Go, permet 8 pas au lieu de 40
+# jeu complet avec la LoRA, 94 Go
+MODE=complet LORA=1 bash download_weights.sh /runpod-volume/infinitetalk/weights
 ```
 
 Le script est reprenable : s'il s'interrompt, le relancer continue ou il
-s'etait arrete. Il verifie les fichiers attendus a la fin.
+s'etait arrete. Il verifie les fichiers attendus a la fin et rappelle les
+variables a renseigner dans l'endpoint.
+
+> **`int8` n'est pas utilisable.** Le depot amont publie bien un DiT en
+> int8, mais pas de `t5_int8.safetensors` -- et le chargeur T5 l'exige des
+> que la quantification est active. Seul `fp8` est complet. Le handler
+> refuse `IT_QUANT=int8` d'emblee plutot que d'echouer apres plusieurs
+> minutes de chargement.
 
 ### Les references
 
@@ -123,10 +172,10 @@ et 5 Go de CLIP.
 | `IT_WEIGHTS` | auto | racine des poids, si elle n'est pas trouvee seule |
 | `IT_REFS` | auto | dossier des images et videos de reference |
 | `IT_VARIANTE` | `single` | `single` (une personne) ou `multi` (deux) |
-| `IT_QUANT` | vide | `fp8` ou `int8`, pour tenir en moins de VRAM |
+| `IT_QUANT` | vide | `fp8` **obligatoire avec le jeu compact**, sinon le worker cherche les fragments bf16 absents. `int8` est refuse |
 | `IT_LOW_VRAM` | `0` | `1` deleste le DiT : tient en 48 Go, mais plus lent |
-| `IT_T5_CPU` | `0` | `1` garde T5 sur le CPU, libere 11 Go de VRAM |
-| `IT_LORA` | vide | chemin d'une LoRA (FusionX : 8 pas au lieu de 40) |
+| `IT_T5_CPU` | `0` | `1` garde T5 sur le CPU, libere de la VRAM |
+| `IT_LORA` | vide | chemin d'une LoRA (FusionX : 8 pas au lieu de 40). Incompatible avec `IT_QUANT` |
 | `IT_LORA_SCALE` | `1.2` | intensite de la LoRA |
 | `IT_PROMPT` | neutre | invite par defaut si la requete n'en donne pas |
 

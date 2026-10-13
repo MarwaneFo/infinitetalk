@@ -27,9 +27,6 @@ on:
         required: false
         default: ""
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/infinitetalk-serverless
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -39,6 +36,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # GHCR refuse les majuscules dans un nom de depot, et le compte
+      # s'ecrit MarwaneFo. On abaisse la casse ici plutot que d'ecrire le
+      # nom en dur : le jour ou le depot change de proprietaire, rien a
+      # modifier.
+      - name: Nom de l'image en minuscules
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/${OWNER}/infinitetalk-serverless" >> "$GITHUB_ENV"
+          echo "Image : ghcr.io/${OWNER}/infinitetalk-serverless"
 
       # L'image depasse largement les 14 Go libres par defaut sur le
       # runner : base CUDA devel, torch cu121, xformers, flash-attn.
