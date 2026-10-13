@@ -19,6 +19,7 @@ on:
     paths:
       - 'handler.py'
       - 'verifier_imports.py'
+      - 'xfuser_shim/**'
       - 'Dockerfile'
       - '.github/workflows/build.yml'
   workflow_dispatch:

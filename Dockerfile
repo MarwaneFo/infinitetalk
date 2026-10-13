@@ -103,6 +103,35 @@ from diffusers.models.modeling_utils import no_init_weights, ContextManagers; \
 print('torch', torch.__version__, '| diffusers', diffusers.__version__, \
 '| transformers', transformers.__version__)"
 
+# ---------- 6 ter. Remplacer xfuser, qu'aucune version ne rend compatible ----
+# Meme contradiction que diffusers, mais sans issue : requirements.txt
+# demande xfuser>=0.4.1, et TOUTES les versions depuis 0.4.0 commencent par
+#
+#     from torch.distributed.tensor.experimental._attention import ...
+#
+# un chemin qui n'existe qu'a partir de torch 2.5, alors que la recette
+# impose 2.4.1. Epingler ne sert a rien : aucune version ne satisfait les
+# deux contraintes.
+#
+# Or xfuser n'est importe que par wan/modules/attention.py et
+# wan/utils/multitalk_utils.py, pour trois noms, appeles uniquement dans
+# des branches `if enable_sp:` -- du multi-GPU. Le worker tourne en
+# mono-GPU avec use_usp=False : ces branches ne sont jamais prises.
+#
+# On desinstalle donc le vrai paquet et on fournit les trois noms. Deux
+# ont une reponse exacte en mono-GPU (rang 0, groupe de taille 1) ; le
+# troisieme n'en a pas et leve une erreur nommee plutot que de renvoyer
+# un resultat faux. Le detail est en tete du fichier remplacant.
+COPY xfuser_shim/xfuser /usr/local/lib/python3.10/dist-packages/xfuser_shim_tmp
+RUN pip uninstall -y xfuser || true \
+ && rm -rf /usr/local/lib/python3.10/dist-packages/xfuser \
+ && mv /usr/local/lib/python3.10/dist-packages/xfuser_shim_tmp \
+       /usr/local/lib/python3.10/dist-packages/xfuser \
+ && python -c "from xfuser.core.distributed import get_sequence_parallel_rank as r, \
+get_sequence_parallel_world_size as w; \
+assert (r(), w()) == (0, 1); \
+import xfuser; print('xfuser remplace :', xfuser.__version__)"
+
 # ---------- 7. Dependances du worker, et etat final deterministe ----------
 # Trois pieges, tous deja payes sur les workers precedents :
 #

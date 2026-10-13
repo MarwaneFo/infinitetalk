@@ -25,6 +25,9 @@ ETAPES = [
      "from diffusers.models.modeling_utils import no_init_weights, ContextManagers"),
     ("transformers",         "import transformers"),
     ("optimum-quanto",       "from optimum.quanto import quantize, freeze, requantize"),
+    ("xfuser (remplacant mono-GPU)",
+     "from xfuser.core.distributed import get_sequence_parallel_rank, "
+     "get_sequence_parallel_world_size, get_sp_group"),
     ("flash-attn",           "import flash_attn"),
     ("xformers",             "import xformers.ops"),
     ("audio",                "import librosa, soundfile, pyloudnorm"),
