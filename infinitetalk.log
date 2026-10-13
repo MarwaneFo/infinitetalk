@@ -1,0 +1,424 @@
+# Build infinitetalk -- ECHEC
+commit   : b3b5d00b739fa008f8c357b71f9fa996aefd7aeb
+date     : 2026-10-13T10:33:02Z
+execution: https://github.com/MarwaneFo/infinitetalk/actions/runs/38383338690
+disque   : /dev/root       145G   54G   91G  38% /
+
+--- lignes contenant une erreur ---
+31:#8 ERROR: failed to configure registry cache importer: ghcr.io/marwanefo/infinitetalk-serverless:cache: not found
+163:#9 6.421   libelf1 liberror-perl libexpat1 libexpat1-dev libflac8 libflite1
+216:#9 6.858   libelf1 liberror-perl libexpat1 libexpat1-dev libflac8 libflite1
+463:#9 20.50 Get:212 http://archive.ubuntu.com/ubuntu jammy/main amd64 liberror-perl all 0.17029-1 [26.5 kB]
+1114:#9 28.16 Selecting previously unselected package liberror-perl.
+1115:#9 28.16 Preparing to unpack .../192-liberror-perl_0.17029-1_all.deb ...
+1116:#9 28.17 Unpacking liberror-perl (0.17029-1) ...
+1198:#9 29.10 Setting up liberror-perl (0.17029-1) ...
+2343:#16 11.62 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+2577:#19 6.529 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+2621:#21 5.073 Traceback (most recent call last):
+2637:#21 5.073 RuntimeError: Found no NVIDIA driver on your system. Please check that you have an NVIDIA GPU and installed a driver from http://www.nvidia.com/Download/index.aspx
+2640:#21 ERROR: process "/bin/sh -c python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py" did not complete successfully: exit code: 1
+2653:5.073 RuntimeError: Found no NVIDIA driver on your system. Please check that you have an NVIDIA GPU and installed a driver from http://www.nvidia.com/Download/index.aspx
+2665:ERROR: failed to build: failed to solve: process "/bin/sh -c python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py" did not complete successfully: exit code: 1
+
+--- 400 dernieres lignes ---
+#16 0.912   Downloading transformers-4.49.0-py3-none-any.whl.metadata (44 kB)
+#16 1.040 Collecting accelerate==1.1.1
+#16 1.044   Downloading accelerate-1.1.1-py3-none-any.whl.metadata (19 kB)
+#16 1.055 Requirement already satisfied: importlib-metadata in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (9.0.1)
+#16 1.055 Requirement already satisfied: filelock in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (3.32.3)
+#16 1.056 Requirement already satisfied: huggingface-hub>=0.27.0 in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (1.33.0)
+#16 1.056 Requirement already satisfied: numpy in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (1.26.4)
+#16 1.057 Requirement already satisfied: regex!=2019.12.17 in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (2026.9.29)
+#16 1.058 Requirement already satisfied: requests in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (2.34.2)
+#16 1.058 Requirement already satisfied: safetensors>=0.3.1 in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (0.8.0)
+#16 1.059 Requirement already satisfied: Pillow in /usr/local/lib/python3.10/dist-packages (from diffusers==0.33.1) (12.3.0)
+#16 1.104 Collecting huggingface-hub>=0.27.0 (from diffusers==0.33.1)
+#16 1.108   Downloading huggingface_hub-0.36.2-py3-none-any.whl.metadata (15 kB)
+#16 1.131 Requirement already satisfied: packaging>=20.0 in /usr/local/lib/python3.10/dist-packages (from transformers==4.49.0) (26.3)
+#16 1.132 Requirement already satisfied: pyyaml>=5.1 in /usr/local/lib/python3.10/dist-packages (from transformers==4.49.0) (6.0.3)
+#16 1.273 Collecting tokenizers<0.22,>=0.21 (from transformers==4.49.0)
+#16 1.278   Downloading tokenizers-0.21.4-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.7 kB)
+#16 1.281 Requirement already satisfied: tqdm>=4.27 in /usr/local/lib/python3.10/dist-packages (from transformers==4.49.0) (4.70.1)
+#16 1.292 Requirement already satisfied: psutil in /usr/local/lib/python3.10/dist-packages (from accelerate==1.1.1) (7.2.2)
+#16 1.293 Requirement already satisfied: torch>=1.10.0 in /usr/local/lib/python3.10/dist-packages (from accelerate==1.1.1) (2.4.1+cu121)
+#16 1.294 Requirement already satisfied: fsspec>=2023.5.0 in /usr/local/lib/python3.10/dist-packages (from huggingface-hub>=0.27.0->diffusers==0.33.1) (2026.7.0)
+#16 1.295 Requirement already satisfied: hf-xet<2.0.0,>=1.1.3 in /usr/local/lib/python3.10/dist-packages (from huggingface-hub>=0.27.0->diffusers==0.33.1) (1.7.0)
+#16 1.296 Requirement already satisfied: typing-extensions>=3.7.4.3 in /usr/local/lib/python3.10/dist-packages (from huggingface-hub>=0.27.0->diffusers==0.33.1) (4.16.0)
+#16 1.343 Requirement already satisfied: sympy in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (1.14.0)
+#16 1.344 Requirement already satisfied: networkx in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (3.4.2)
+#16 1.344 Requirement already satisfied: jinja2 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (3.1.6)
+#16 1.345 Requirement already satisfied: nvidia-cuda-nvrtc-cu12==12.1.105 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.105)
+#16 1.346 Requirement already satisfied: nvidia-cuda-runtime-cu12==12.1.105 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.105)
+#16 1.347 Requirement already satisfied: nvidia-cuda-cupti-cu12==12.1.105 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.105)
+#16 1.348 Requirement already satisfied: nvidia-cudnn-cu12==9.1.0.70 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (9.1.0.70)
+#16 1.349 Requirement already satisfied: nvidia-cublas-cu12==12.1.3.1 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.3.1)
+#16 1.349 Requirement already satisfied: nvidia-cufft-cu12==11.0.2.54 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (11.0.2.54)
+#16 1.350 Requirement already satisfied: nvidia-curand-cu12==10.3.2.106 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (10.3.2.106)
+#16 1.351 Requirement already satisfied: nvidia-cusolver-cu12==11.4.5.107 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (11.4.5.107)
+#16 1.352 Requirement already satisfied: nvidia-cusparse-cu12==12.1.0.106 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.0.106)
+#16 1.353 Requirement already satisfied: nvidia-nccl-cu12==2.20.5 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (2.20.5)
+#16 1.354 Requirement already satisfied: nvidia-nvtx-cu12==12.1.105 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (12.1.105)
+#16 1.355 Requirement already satisfied: triton==3.0.0 in /usr/local/lib/python3.10/dist-packages (from torch>=1.10.0->accelerate==1.1.1) (3.0.0)
+#16 1.360 Requirement already satisfied: nvidia-nvjitlink-cu12 in /usr/local/lib/python3.10/dist-packages (from nvidia-cusolver-cu12==11.4.5.107->torch>=1.10.0->accelerate==1.1.1) (12.9.86)
+#16 1.370 Requirement already satisfied: zipp>=3.20 in /usr/local/lib/python3.10/dist-packages (from importlib-metadata->diffusers==0.33.1) (4.1.1)
+#16 1.374 Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/dist-packages (from jinja2->torch>=1.10.0->accelerate==1.1.1) (3.0.3)
+#16 1.390 Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.10/dist-packages (from requests->diffusers==0.33.1) (3.5.2)
+#16 1.391 Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.10/dist-packages (from requests->diffusers==0.33.1) (3.20)
+#16 1.392 Requirement already satisfied: urllib3<3,>=1.26 in /usr/local/lib/python3.10/dist-packages (from requests->diffusers==0.33.1) (2.8.0)
+#16 1.393 Requirement already satisfied: certifi>=2023.5.7 in /usr/local/lib/python3.10/dist-packages (from requests->diffusers==0.33.1) (2026.7.22)
+#16 1.400 Requirement already satisfied: mpmath<1.4,>=1.1.0 in /usr/local/lib/python3.10/dist-packages (from sympy->torch>=1.10.0->accelerate==1.1.1) (1.3.0)
+#16 1.406 Downloading diffusers-0.33.1-py3-none-any.whl (3.6 MB)
+#16 1.432    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.6/3.6 MB 167.1 MB/s  0:00:00
+#16 1.437 Downloading transformers-4.49.0-py3-none-any.whl (10.0 MB)
+#16 1.487    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.0/10.0 MB 205.7 MB/s  0:00:00
+#16 1.492 Downloading accelerate-1.1.1-py3-none-any.whl (333 kB)
+#16 1.496 Downloading huggingface_hub-0.36.2-py3-none-any.whl (566 kB)
+#16 1.499    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 566.4/566.4 kB 525.8 MB/s  0:00:00
+#16 1.505 Downloading tokenizers-0.21.4-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (3.1 MB)
+#16 1.514    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.1/3.1 MB 451.8 MB/s  0:00:00
+#16 2.203 Installing collected packages: huggingface-hub, tokenizers, diffusers, transformers, accelerate
+#16 2.204   Attempting uninstall: huggingface-hub
+#16 2.205     Found existing installation: huggingface_hub 1.33.0
+#16 2.225     Uninstalling huggingface_hub-1.33.0:
+#16 2.308       Successfully uninstalled huggingface_hub-1.33.0
+#16 2.590   Attempting uninstall: tokenizers
+#16 2.591     Found existing installation: tokenizers 0.23.3
+#16 2.596     Uninstalling tokenizers-0.23.3:
+#16 2.620       Successfully uninstalled tokenizers-0.23.3
+#16 2.687   Attempting uninstall: diffusers
+#16 2.688     Found existing installation: diffusers 0.41.0
+#16 2.799     Uninstalling diffusers-0.41.0:
+#16 3.346       Successfully uninstalled diffusers-0.41.0
+#16 4.846   Attempting uninstall: transformers
+#16 4.849     Found existing installation: transformers 5.19.0
+#16 5.135     Uninstalling transformers-5.19.0:
+#16 6.718       Successfully uninstalled transformers-5.19.0
+#16 11.38   Attempting uninstall: accelerate
+#16 11.38     Found existing installation: accelerate 1.15.0
+#16 11.39     Uninstalling accelerate-1.15.0:
+#16 11.44       Successfully uninstalled accelerate-1.15.0
+#16 11.59 
+#16 11.62 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+#16 11.62 gradio 6.30.0 requires huggingface-hub<3.0,>=1.16.0, but you have huggingface-hub 0.36.2 which is incompatible.
+#16 11.62 gradio-client 2.7.2 requires huggingface-hub<3.0,>=1.16.0, but you have huggingface-hub 0.36.2 which is incompatible.
+#16 11.62 Successfully installed accelerate-1.1.1 diffusers-0.33.1 huggingface-hub-0.36.2 tokenizers-0.21.4 transformers-4.49.0
+#16 11.62 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#16 13.55 torch 2.4.1+cu121 | diffusers 0.33.1 | transformers 4.49.0
+#16 DONE 14.0s
+
+#17 [10/15] COPY xfuser_shim/xfuser /usr/local/lib/python3.10/dist-packages/xfuser_shim_tmp
+#17 DONE 0.1s
+
+#18 [11/15] RUN pip uninstall -y xfuser || true  && rm -rf /usr/local/lib/python3.10/dist-packages/xfuser  && mv /usr/local/lib/python3.10/dist-packages/xfuser_shim_tmp        /usr/local/lib/python3.10/dist-packages/xfuser  && python -c "from xfuser.core.distributed import get_sequence_parallel_rank as r, get_sequence_parallel_world_size as w; assert (r(), w()) == (0, 1); import xfuser; print('xfuser remplace :', xfuser.__version__)"
+#18 0.349 Found existing installation: xfuser 0.7.0
+#18 0.383 Uninstalling xfuser-0.7.0:
+#18 0.548   Successfully uninstalled xfuser-0.7.0
+#18 0.569 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#18 0.627 xfuser remplace : 0.0.0+shim-mono-gpu
+#18 DONE 0.6s
+
+#19 [12/15] RUN pip install runpod requests soundfile  && (pip uninstall -y gradio gradio-client || true)  && pip install --force-reinstall --no-deps "numpy==1.26.4"  && python -c "import numpy, torch; assert numpy.__version__.startswith('1.'), 'numpy remonte en ' + numpy.__version__; assert torch.__version__.startswith('2.4.1'), 'torch deplace en ' + torch.__version__; print('etat final : numpy', numpy.__version__, '| torch', torch.__version__)"
+#19 0.540 Collecting runpod
+#19 0.589   Downloading runpod-1.12.0-py3-none-any.whl.metadata (12 kB)
+#19 0.593 Requirement already satisfied: requests in /usr/local/lib/python3.10/dist-packages (2.34.2)
+#19 0.594 Requirement already satisfied: soundfile in /usr/local/lib/python3.10/dist-packages (0.14.0)
+#19 0.595 Requirement already satisfied: aiohttp>=3.14.3 in /usr/local/lib/python3.10/dist-packages (from aiohttp[speedups]>=3.14.3->runpod) (3.14.5)
+#19 0.603 Collecting aiohttp-retry>=2.9.1 (from runpod)
+#19 0.606   Downloading aiohttp_retry-2.9.1-py3-none-any.whl.metadata (8.8 kB)
+#19 0.616 Collecting backoff>=2.2.1 (from runpod)
+#19 0.619   Downloading backoff-2.2.1-py3-none-any.whl.metadata (14 kB)
+#19 0.831 Collecting boto3>=1.43.66 (from runpod)
+#19 0.835   Downloading boto3-1.43.112-py3-none-any.whl.metadata (6.6 kB)
+#19 0.837 Requirement already satisfied: click>=8.4.2 in /usr/local/lib/python3.10/dist-packages (from runpod) (8.5.0)
+#19 0.846 Collecting colorama<0.4.7,>=0.4.6 (from runpod)
+#19 0.849   Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+#19 0.851 Requirement already satisfied: cryptography>=50.0.0 in /usr/local/lib/python3.10/dist-packages (from runpod) (50.0.2)
+#19 0.852 Requirement already satisfied: fastapi>=0.141.1 in /usr/local/lib/python3.10/dist-packages (from fastapi[all]>=0.141.1->runpod) (0.143.0)
+#19 0.868 Collecting paramiko>=5.0.0 (from runpod)
+#19 0.872   Downloading paramiko-5.0.0-py3-none-any.whl.metadata (3.7 kB)
+#19 0.882 Collecting prettytable>=3.18.0 (from runpod)
+#19 0.885   Downloading prettytable-3.18.0-py3-none-any.whl.metadata (37 kB)
+#19 0.889 Requirement already satisfied: psutil>=7.2.2 in /usr/local/lib/python3.10/dist-packages (from runpod) (7.2.2)
+#19 0.894 Collecting py-cpuinfo>=9.0.0 (from runpod)
+#19 0.898   Downloading py_cpuinfo-9.0.0-py3-none-any.whl.metadata (794 bytes)
+#19 0.904 Collecting inquirerpy==0.3.4 (from runpod)
+#19 0.908   Downloading InquirerPy-0.3.4-py3-none-any.whl.metadata (8.1 kB)
+#19 0.911 Requirement already satisfied: tomli>=2.4.1 in /usr/local/lib/python3.10/dist-packages (from runpod) (2.5.0)
+#19 0.921 Collecting tomlkit>=0.15.1 (from runpod)
+#19 0.924   Downloading tomlkit-0.15.1-py3-none-any.whl.metadata (3.3 kB)
+#19 0.930 Collecting tqdm-loggable>=0.4.1 (from runpod)
+#19 0.935   Downloading tqdm_loggable-0.4.1-py3-none-any.whl.metadata (10 kB)
+#19 0.936 Requirement already satisfied: urllib3>=2.7.0 in /usr/local/lib/python3.10/dist-packages (from runpod) (2.8.0)
+#19 0.974 Collecting watchdog>=6.0.0 (from runpod)
+#19 0.978   Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl.metadata (44 kB)
+#19 0.986 Collecting pfzy<0.4.0,>=0.3.1 (from inquirerpy==0.3.4->runpod)
+#19 0.989   Downloading pfzy-0.3.4-py3-none-any.whl.metadata (4.9 kB)
+#19 1.012 Collecting prompt-toolkit<4.0.0,>=3.0.1 (from inquirerpy==0.3.4->runpod)
+#19 1.016   Downloading prompt_toolkit-3.0.53-py3-none-any.whl.metadata (6.4 kB)
+#19 1.019 Requirement already satisfied: wcwidth>=0.1.4 in /usr/local/lib/python3.10/dist-packages (from prompt-toolkit<4.0.0,>=3.0.1->inquirerpy==0.3.4->runpod) (0.9.2)
+#19 1.021 Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.10/dist-packages (from requests) (3.5.2)
+#19 1.022 Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.10/dist-packages (from requests) (3.20)
+#19 1.022 Requirement already satisfied: certifi>=2023.5.7 in /usr/local/lib/python3.10/dist-packages (from requests) (2026.7.22)
+#19 1.027 Requirement already satisfied: cffi>=1.0 in /usr/local/lib/python3.10/dist-packages (from soundfile) (2.1.1)
+#19 1.027 Requirement already satisfied: numpy in /usr/local/lib/python3.10/dist-packages (from soundfile) (1.26.4)
+#19 1.028 Requirement already satisfied: typing-extensions in /usr/local/lib/python3.10/dist-packages (from soundfile) (4.16.0)
+#19 1.031 Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (2.7.1)
+#19 1.031 Requirement already satisfied: aiosignal>=1.4.0 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (1.4.0)
+#19 1.032 Requirement already satisfied: async-timeout<6.0,>=4.0 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (5.0.1)
+#19 1.033 Requirement already satisfied: attrs>=17.3.0 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (26.1.0)
+#19 1.033 Requirement already satisfied: frozenlist>=1.1.1 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (1.8.0)
+#19 1.034 Requirement already satisfied: multidict<8.0,>=4.5 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (7.1.0)
+#19 1.035 Requirement already satisfied: propcache>=0.2.0 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (0.5.4)
+#19 1.036 Requirement already satisfied: yarl<2.0,>=1.25.1 in /usr/local/lib/python3.10/dist-packages (from aiohttp>=3.14.3->aiohttp[speedups]>=3.14.3->runpod) (1.25.1)
+#19 1.052 Collecting aiodns>=3.3.0 (from aiohttp[speedups]>=3.14.3->runpod)
+#19 1.056   Downloading aiodns-4.0.4-py3-none-any.whl.metadata (9.0 kB)
+#19 1.058 Requirement already satisfied: Brotli>=1.2 in /usr/local/lib/python3.10/dist-packages (from aiohttp[speedups]>=3.14.3->runpod) (1.2.0)
+#19 1.141 Collecting backports.zstd (from aiohttp[speedups]>=3.14.3->runpod)
+#19 1.145   Downloading backports_zstd-1.8.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (6.8 kB)
+#19 1.217 Collecting pycares<6,>=5.0.0 (from aiodns>=3.3.0->aiohttp[speedups]>=3.14.3->runpod)
+#19 1.222   Downloading pycares-5.1.0-cp310-cp310-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.1 kB)
+#19 1.467 Collecting botocore<1.44.0,>=1.43.112 (from boto3>=1.43.66->runpod)
+#19 1.471   Downloading botocore-1.43.112-py3-none-any.whl.metadata (5.6 kB)
+#19 1.479 Collecting jmespath<2.0.0,>=0.7.1 (from boto3>=1.43.66->runpod)
+#19 1.482   Downloading jmespath-1.1.0-py3-none-any.whl.metadata (7.6 kB)
+#19 1.494 Collecting s3transfer<0.20.0,>=0.19.0 (from boto3>=1.43.66->runpod)
+#19 1.497   Downloading s3transfer-0.19.2-py3-none-any.whl.metadata (1.7 kB)
+#19 1.500 Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in /usr/local/lib/python3.10/dist-packages (from botocore<1.44.0,>=1.43.112->boto3>=1.43.66->runpod) (2.9.0.post0)
+#19 1.502 Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.10/dist-packages (from python-dateutil<3.0.0,>=2.1->botocore<1.44.0,>=1.43.112->boto3>=1.43.66->runpod) (1.17.0)
+#19 1.540 Requirement already satisfied: pycparser in /usr/local/lib/python3.10/dist-packages (from cffi>=1.0->soundfile) (3.11)
+#19 1.548 Requirement already satisfied: starlette>=0.46.0 in /usr/local/lib/python3.10/dist-packages (from fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (1.7.0)
+#19 1.549 Requirement already satisfied: pydantic>=2.9.0 in /usr/local/lib/python3.10/dist-packages (from fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (2.14.1)
+#19 1.550 Requirement already satisfied: typing-inspection>=0.4.2 in /usr/local/lib/python3.10/dist-packages (from fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (0.4.4)
+#19 1.550 Requirement already satisfied: annotated-doc>=0.0.2 in /usr/local/lib/python3.10/dist-packages (from fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (0.0.5)
+#19 1.551 Requirement already satisfied: opentelemetry-api>=1.44.0 in /usr/local/lib/python3.10/dist-packages (from fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (1.45.1)
+#19 1.595 Collecting opentelemetry-sdk>=1.44.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.598   Downloading opentelemetry_sdk-1.45.1-py3-none-any.whl.metadata (1.6 kB)
+#19 1.610 Collecting opentelemetry-exporter-otlp-proto-http>=1.44.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.614   Downloading opentelemetry_exporter_otlp_proto_http-1.45.1-py3-none-any.whl.metadata (3.0 kB)
+#19 1.624 Collecting fastapi-cli>=0.0.32 (from fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 1.627   Downloading fastapi_cli-0.0.32-py3-none-any.whl.metadata (6.7 kB)
+#19 1.630 Requirement already satisfied: httpx<1.0.0,>=0.23.0 in /usr/local/lib/python3.10/dist-packages (from fastapi[all]>=0.141.1->runpod) (0.28.1)
+#19 1.631 Requirement already satisfied: jinja2>=3.1.5 in /usr/local/lib/python3.10/dist-packages (from fastapi[all]>=0.141.1->runpod) (3.1.6)
+#19 1.631 Requirement already satisfied: python-multipart>=0.0.18 in /usr/local/lib/python3.10/dist-packages (from fastapi[all]>=0.141.1->runpod) (0.0.32)
+#19 1.638 Collecting itsdangerous>=1.1.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.641   Downloading itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
+#19 1.642 Requirement already satisfied: pyyaml>=5.3.1 in /usr/local/lib/python3.10/dist-packages (from fastapi[all]>=0.141.1->runpod) (6.0.3)
+#19 1.651 Collecting email-validator>=2.0.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.654   Downloading email_validator-2.3.0-py3-none-any.whl.metadata (26 kB)
+#19 1.657 Requirement already satisfied: uvicorn>=0.12.0 in /usr/local/lib/python3.10/dist-packages (from uvicorn[standard]>=0.12.0; extra == "all"->fastapi[all]>=0.141.1->runpod) (0.54.0)
+#19 1.667 Collecting pydantic-settings>=2.0.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.671   Downloading pydantic_settings-2.15.0-py3-none-any.whl.metadata (3.9 kB)
+#19 1.680 Collecting pydantic-extra-types>=2.0.0 (from fastapi[all]>=0.141.1->runpod)
+#19 1.684   Downloading pydantic_extra_types-2.11.1-py3-none-any.whl.metadata (4.2 kB)
+#19 1.692 Requirement already satisfied: anyio in /usr/local/lib/python3.10/dist-packages (from httpx<1.0.0,>=0.23.0->fastapi[all]>=0.141.1->runpod) (4.15.1)
+#19 1.693 Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.10/dist-packages (from httpx<1.0.0,>=0.23.0->fastapi[all]>=0.141.1->runpod) (1.0.9)
+#19 1.696 Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.10/dist-packages (from httpcore==1.*->httpx<1.0.0,>=0.23.0->fastapi[all]>=0.141.1->runpod) (0.16.0)
+#19 1.705 Collecting dnspython>=2.0.0 (from email-validator>=2.0.0->fastapi[all]>=0.141.1->runpod)
+#19 1.708   Downloading dnspython-2.8.0-py3-none-any.whl.metadata (5.7 kB)
+#19 1.714 Requirement already satisfied: typer>=0.16.0 in /usr/local/lib/python3.10/dist-packages (from fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (0.27.3)
+#19 1.728 Collecting rich-toolkit>=0.14.8 (from fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 1.732   Downloading rich_toolkit-0.20.6-py3-none-any.whl.metadata (3.0 kB)
+#19 1.746 Collecting fastapi-cloud-cli>=0.1.1 (from fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 1.754   Downloading fastapi_cloud_cli-0.26.0-py3-none-any.whl.metadata (3.1 kB)
+#19 1.878 Collecting rignore>=0.5.1 (from fastapi-cloud-cli>=0.1.1->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 1.883   Downloading rignore-0.8.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.2 kB)
+#19 1.929 Collecting sentry-sdk>=2.20.0 (from fastapi-cloud-cli>=0.1.1->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 1.932   Downloading sentry_sdk-2.72.0-py3-none-any.whl.metadata (11 kB)
+#19 2.040 Collecting fastar>=0.10.0 (from fastapi-cloud-cli>=0.1.1->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.059   Downloading fastar-0.12.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+#19 2.066 Collecting detect-installer>=0.1.0 (from fastapi-cloud-cli>=0.1.1->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.070   Downloading detect_installer-0.2.1-py3-none-any.whl.metadata (1.2 kB)
+#19 2.077 Collecting agent-detector>=1.1.0 (from fastapi-cloud-cli>=0.1.1->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.081   Downloading agent_detector-2.0.0-py3-none-any.whl.metadata (6.6 kB)
+#19 2.089 Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.10/dist-packages (from jinja2>=3.1.5->fastapi[all]>=0.141.1->runpod) (3.0.3)
+#19 2.106 Collecting googleapis-common-protos~=1.52 (from opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.110   Downloading googleapis_common_protos-1.75.5-py3-none-any.whl.metadata (8.5 kB)
+#19 2.116 Collecting opentelemetry-exporter-http-transport==0.66b1 (from opentelemetry-exporter-http-transport[requests]==0.66b1->opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.119   Downloading opentelemetry_exporter_http_transport-0.66b1-py3-none-any.whl.metadata (2.3 kB)
+#19 2.126 Collecting opentelemetry-exporter-otlp-common==0.66b1 (from opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.129   Downloading opentelemetry_exporter_otlp_common-0.66b1-py3-none-any.whl.metadata (1.9 kB)
+#19 2.139 Collecting opentelemetry-exporter-otlp-proto-common==1.45.1 (from opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.142   Downloading opentelemetry_exporter_otlp_proto_common-1.45.1-py3-none-any.whl.metadata (1.8 kB)
+#19 2.154 Collecting opentelemetry-proto==1.45.1 (from opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.158   Downloading opentelemetry_proto-1.45.1-py3-none-any.whl.metadata (2.3 kB)
+#19 2.360 Collecting protobuf<8.0,>=5.0 (from opentelemetry-proto==1.45.1->opentelemetry-exporter-otlp-proto-http>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.364   Downloading protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+#19 2.386 Collecting opentelemetry-semantic-conventions==0.66b1 (from opentelemetry-sdk>=1.44.0->fastapi[all]>=0.141.1->runpod)
+#19 2.390   Downloading opentelemetry_semantic_conventions-0.66b1-py3-none-any.whl.metadata (2.4 kB)
+#19 2.429 Collecting bcrypt>=3.2 (from paramiko>=5.0.0->runpod)
+#19 2.433   Downloading bcrypt-5.0.0-cp39-abi3-manylinux_2_34_x86_64.whl.metadata (10 kB)
+#19 2.448 Collecting invoke>=2.0 (from paramiko>=5.0.0->runpod)
+#19 2.451   Downloading invoke-3.0.3-py3-none-any.whl.metadata (3.2 kB)
+#19 2.468 Collecting pynacl>=1.5 (from paramiko>=5.0.0->runpod)
+#19 2.472   Downloading pynacl-1.6.2-cp38-abi3-manylinux_2_34_x86_64.whl.metadata (10.0 kB)
+#19 2.487 Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.10/dist-packages (from pydantic>=2.9.0->fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (0.8.0)
+#19 2.488 Requirement already satisfied: pydantic-core==2.50.1 in /usr/local/lib/python3.10/dist-packages (from pydantic>=2.9.0->fastapi>=0.141.1->fastapi[all]>=0.141.1->runpod) (2.50.1)
+#19 2.503 Collecting python-dotenv>=0.21.0 (from pydantic-settings>=2.0.0->fastapi[all]>=0.141.1->runpod)
+#19 2.506   Downloading python_dotenv-1.2.4-py3-none-any.whl.metadata (29 kB)
+#19 2.516 Requirement already satisfied: rich>=13.7.1 in /usr/local/lib/python3.10/dist-packages (from rich-toolkit>=0.14.8->fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (15.0.0)
+#19 2.518 Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.10/dist-packages (from rich>=13.7.1->rich-toolkit>=0.14.8->fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (4.2.0)
+#19 2.519 Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.10/dist-packages (from rich>=13.7.1->rich-toolkit>=0.14.8->fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (2.21.0)
+#19 2.525 Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.10/dist-packages (from markdown-it-py>=2.2.0->rich>=13.7.1->rich-toolkit>=0.14.8->fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (0.1.2)
+#19 2.535 Requirement already satisfied: exceptiongroup>=1.0.2 in /usr/local/lib/python3.10/dist-packages (from anyio->httpx<1.0.0,>=0.23.0->fastapi[all]>=0.141.1->runpod) (1.3.1)
+#19 2.541 Requirement already satisfied: tqdm>4.64 in /usr/local/lib/python3.10/dist-packages (from tqdm-loggable>=0.4.1->runpod) (4.70.1)
+#19 2.545 Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.10/dist-packages (from typer>=0.16.0->fastapi-cli>=0.0.32->fastapi-cli[standard]>=0.0.32; extra == "all"->fastapi[all]>=0.141.1->runpod) (1.5.4)
+#19 2.587 Collecting httptools>=0.8.0 (from uvicorn[standard]>=0.12.0; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.591   Downloading httptools-0.9.0-cp310-cp310-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (3.5 kB)
+#19 2.630 Collecting uvloop>=0.15.1 (from uvicorn[standard]>=0.12.0; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.634   Downloading uvloop-0.23.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (5.1 kB)
+#19 2.711 Collecting watchfiles>=0.20 (from uvicorn[standard]>=0.12.0; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.715   Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.9 kB)
+#19 2.881 Collecting websockets>=13.0 (from uvicorn[standard]>=0.12.0; extra == "all"->fastapi[all]>=0.141.1->runpod)
+#19 2.885   Downloading websockets-16.1.1-cp310-cp310-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.8 kB)
+#19 2.905 Downloading runpod-1.12.0-py3-none-any.whl (346 kB)
+#19 2.914 Downloading InquirerPy-0.3.4-py3-none-any.whl (67 kB)
+#19 2.918 Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+#19 2.921 Downloading pfzy-0.3.4-py3-none-any.whl (8.5 kB)
+#19 2.924 Downloading prompt_toolkit-3.0.53-py3-none-any.whl (392 kB)
+#19 2.931 Downloading aiohttp_retry-2.9.1-py3-none-any.whl (10.0 kB)
+#19 2.934 Downloading aiodns-4.0.4-py3-none-any.whl (12 kB)
+#19 2.939 Downloading pycares-5.1.0-cp310-cp310-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (225 kB)
+#19 2.944 Downloading backoff-2.2.1-py3-none-any.whl (15 kB)
+#19 2.947 Downloading boto3-1.43.112-py3-none-any.whl (140 kB)
+#19 2.951 Downloading botocore-1.43.112-py3-none-any.whl (16.1 MB)
+#19 3.007    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.1/16.1 MB 310.5 MB/s  0:00:00
+#19 3.011 Downloading jmespath-1.1.0-py3-none-any.whl (20 kB)
+#19 3.014 Downloading s3transfer-0.19.2-py3-none-any.whl (90 kB)
+#19 3.018 Downloading email_validator-2.3.0-py3-none-any.whl (35 kB)
+#19 3.021 Downloading dnspython-2.8.0-py3-none-any.whl (331 kB)
+#19 3.025 Downloading fastapi_cli-0.0.32-py3-none-any.whl (14 kB)
+#19 3.028 Downloading fastapi_cloud_cli-0.26.0-py3-none-any.whl (108 kB)
+#19 3.031 Downloading agent_detector-2.0.0-py3-none-any.whl (9.4 kB)
+#19 3.034 Downloading detect_installer-0.2.1-py3-none-any.whl (5.4 kB)
+#19 3.039 Downloading fastar-0.12.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (811 kB)
+#19 3.043    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 811.5/811.5 kB 633.0 MB/s  0:00:00
+#19 3.046 Downloading itsdangerous-2.2.0-py3-none-any.whl (16 kB)
+#19 3.050 Downloading opentelemetry_exporter_otlp_proto_http-1.45.1-py3-none-any.whl (22 kB)
+#19 3.053 Downloading opentelemetry_exporter_http_transport-0.66b1-py3-none-any.whl (12 kB)
+#19 3.056 Downloading opentelemetry_exporter_otlp_common-0.66b1-py3-none-any.whl (12 kB)
+#19 3.059 Downloading opentelemetry_exporter_otlp_proto_common-1.45.1-py3-none-any.whl (15 kB)
+#19 3.062 Downloading opentelemetry_proto-1.45.1-py3-none-any.whl (72 kB)
+#19 3.066 Downloading googleapis_common_protos-1.75.5-py3-none-any.whl (307 kB)
+#19 3.069 Downloading opentelemetry_sdk-1.45.1-py3-none-any.whl (140 kB)
+#19 3.072 Downloading opentelemetry_semantic_conventions-0.66b1-py3-none-any.whl (206 kB)
+#19 3.076 Downloading protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl (343 kB)
+#19 3.080 Downloading paramiko-5.0.0-py3-none-any.whl (208 kB)
+#19 3.083 Downloading bcrypt-5.0.0-cp39-abi3-manylinux_2_34_x86_64.whl (278 kB)
+#19 3.087 Downloading invoke-3.0.3-py3-none-any.whl (160 kB)
+#19 3.090 Downloading prettytable-3.18.0-py3-none-any.whl (37 kB)
+#19 3.093 Downloading py_cpuinfo-9.0.0-py3-none-any.whl (22 kB)
+#19 3.096 Downloading pydantic_extra_types-2.11.1-py3-none-any.whl (79 kB)
+#19 3.100 Downloading pydantic_settings-2.15.0-py3-none-any.whl (69 kB)
+#19 3.103 Downloading pynacl-1.6.2-cp38-abi3-manylinux_2_34_x86_64.whl (1.4 MB)
+#19 3.107    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.4/1.4 MB 778.3 MB/s  0:00:00
+#19 3.111 Downloading python_dotenv-1.2.4-py3-none-any.whl (23 kB)
+#19 3.114 Downloading rich_toolkit-0.20.6-py3-none-any.whl (39 kB)
+#19 3.119 Downloading rignore-0.8.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (933 kB)
+#19 3.123    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 933.9/933.9 kB 633.8 MB/s  0:00:00
+#19 3.127 Downloading sentry_sdk-2.72.0-py3-none-any.whl (544 kB)
+#19 3.130    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 544.8/544.8 kB 779.7 MB/s  0:00:00
+#19 3.133 Downloading tomlkit-0.15.1-py3-none-any.whl (49 kB)
+#19 3.136 Downloading tqdm_loggable-0.4.1-py3-none-any.whl (10 kB)
+#19 3.141 Downloading httptools-0.9.0-cp310-cp310-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (487 kB)
+#19 3.165 Downloading uvloop-0.23.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (3.9 MB)
+#19 3.176    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.9/3.9 MB 418.5 MB/s  0:00:00
+#19 3.180 Downloading watchdog-6.0.0-py3-none-manylinux2014_x86_64.whl (79 kB)
+#19 3.184 Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (458 kB)
+#19 3.187 Downloading websockets-16.1.1-cp310-cp310-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (186 kB)
+#19 3.192 Downloading backports_zstd-1.8.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (493 kB)
+#19 3.777 Installing collected packages: py-cpuinfo, websockets, watchdog, uvloop, tqdm-loggable, tomlkit, sentry-sdk, rignore, python-dotenv, protobuf, prompt-toolkit, prettytable, pfzy, jmespath, itsdangerous, invoke, httptools, fastar, dnspython, detect-installer, colorama, bcrypt, backports.zstd, backoff, agent-detector, pynacl, pycares, opentelemetry-semantic-conventions, opentelemetry-proto, opentelemetry-exporter-http-transport, inquirerpy, googleapis-common-protos, email-validator, botocore, watchfiles, s3transfer, rich-toolkit, pydantic-settings, pydantic-extra-types, paramiko, opentelemetry-sdk, opentelemetry-exporter-otlp-proto-common, aiodns, opentelemetry-exporter-otlp-common, boto3, aiohttp-retry, opentelemetry-exporter-otlp-proto-http, fastapi-cloud-cli, fastapi-cli, runpod
+#19 3.986   Attempting uninstall: tomlkit
+#19 3.987     Found existing installation: tomlkit 0.14.0
+#19 3.990     Uninstalling tomlkit-0.14.0:
+#19 3.999       Successfully uninstalled tomlkit-0.14.0
+#19 6.500 
+#19 6.529 ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+#19 6.529 gradio 6.30.0 requires huggingface-hub<3.0,>=1.16.0, but you have huggingface-hub 0.36.2 which is incompatible.
+#19 6.529 gradio 6.30.0 requires tomlkit<0.15.0,>=0.12.0, but you have tomlkit 0.15.1 which is incompatible.
+#19 6.531 Successfully installed agent-detector-2.0.0 aiodns-4.0.4 aiohttp-retry-2.9.1 backoff-2.2.1 backports.zstd-1.8.0 bcrypt-5.0.0 boto3-1.43.112 botocore-1.43.112 colorama-0.4.6 detect-installer-0.2.1 dnspython-2.8.0 email-validator-2.3.0 fastapi-cli-0.0.32 fastapi-cloud-cli-0.26.0 fastar-0.12.0 googleapis-common-protos-1.75.5 httptools-0.9.0 inquirerpy-0.3.4 invoke-3.0.3 itsdangerous-2.2.0 jmespath-1.1.0 opentelemetry-exporter-http-transport-0.66b1 opentelemetry-exporter-otlp-common-0.66b1 opentelemetry-exporter-otlp-proto-common-1.45.1 opentelemetry-exporter-otlp-proto-http-1.45.1 opentelemetry-proto-1.45.1 opentelemetry-sdk-1.45.1 opentelemetry-semantic-conventions-0.66b1 paramiko-5.0.0 pfzy-0.3.4 prettytable-3.18.0 prompt-toolkit-3.0.53 protobuf-7.36.2 py-cpuinfo-9.0.0 pycares-5.1.0 pydantic-extra-types-2.11.1 pydantic-settings-2.15.0 pynacl-1.6.2 python-dotenv-1.2.4 rich-toolkit-0.20.6 rignore-0.8.1 runpod-1.12.0 s3transfer-0.19.2 sentry-sdk-2.72.0 tomlkit-0.15.1 tqdm-loggable-0.4.1 uvloop-0.23.0 watchdog-6.0.0 watchfiles-1.3.0 websockets-16.1.1
+#19 6.531 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#19 7.039 Found existing installation: gradio 6.30.0
+#19 7.110 Uninstalling gradio-6.30.0:
+#19 7.649   Successfully uninstalled gradio-6.30.0
+#19 7.719 Found existing installation: gradio_client 2.7.2
+#19 7.723 Uninstalling gradio_client-2.7.2:
+#19 7.732   Successfully uninstalled gradio_client-2.7.2
+#19 7.734 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#19 8.429 Collecting numpy==1.26.4
+#19 8.472   Downloading numpy-1.26.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (61 kB)
+#19 8.492 Downloading numpy-1.26.4-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (18.2 MB)
+#19 8.571    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 18.2/18.2 MB 259.0 MB/s  0:00:00
+#19 8.605 Installing collected packages: numpy
+#19 8.606   Attempting uninstall: numpy
+#19 8.607     Found existing installation: numpy 1.26.4
+#19 8.668     Uninstalling numpy-1.26.4:
+#19 8.995       Successfully uninstalled numpy-1.26.4
+#19 10.62 Successfully installed numpy-1.26.4
+#19 10.62 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#19 11.90 etat final : numpy 1.26.4 | torch 2.4.1+cu121
+#19 DONE 12.3s
+
+#20 [13/15] COPY verifier_imports.py /tmp/verifier_imports.py
+#20 DONE 0.1s
+
+#21 [14/15] RUN python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py
+#21 0.066   socle numerique                           ... ok
+#21 1.298   diffusers                                 ... ok
+#21 1.484   diffusers : les deux noms qui ont manque  ... ok
+#21 1.924   transformers                              ... ok
+#21 1.990   optimum-quanto                            ... No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+#21 4.442 ok
+#21 4.442   xfuser (remplacant mono-GPU)              ... ok
+#21 4.443   flash-attn                                ... ok
+#21 4.443   xformers                                  ... ok
+#21 4.443   audio                                     ... ok
+#21 4.458   video                                     ... ok
+#21 4.466   decoupage de scenes                       ... ok
+#21 4.642   wan.configs                               ... ECHEC
+#21 5.072     instruction : from wan.configs import WAN_CONFIGS, SIZE_CONFIGS
+#21 5.073 Traceback (most recent call last):
+#21 5.073   File "/tmp/verifier_imports.py", line 54, in <module>
+#21 5.073     exec(instruction, {})
+#21 5.073   File "<string>", line 1, in <module>
+#21 5.073   File "/opt/InfiniteTalk/wan/__init__.py", line 1, in <module>
+#21 5.073     from . import configs, distributed, modules
+#21 5.073   File "/opt/InfiniteTalk/wan/modules/__init__.py", line 3, in <module>
+#21 5.073     from .t5 import T5Decoder, T5Encoder, T5EncoderModel, T5Model
+#21 5.073   File "/opt/InfiniteTalk/wan/modules/t5.py", line 477, in <module>
+#21 5.073     class T5EncoderModel:
+#21 5.073   File "/opt/InfiniteTalk/wan/modules/t5.py", line 483, in T5EncoderModel
+#21 5.073     device=torch.cuda.current_device(),
+#21 5.073   File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 878, in current_device
+#21 5.073     _lazy_init()
+#21 5.073   File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 314, in _lazy_init
+#21 5.073     torch._C._cuda_init()
+#21 5.073 RuntimeError: Found no NVIDIA driver on your system. Please check that you have an NVIDIA GPU and installed a driver from http://www.nvidia.com/Download/index.aspx
+#21 5.073 
+#21 5.073 Verification interrompue : l'etape ci-dessus a echoue.
+#21 ERROR: process "/bin/sh -c python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py" did not complete successfully: exit code: 1
+------
+ > importing cache manifest from ghcr.io/marwanefo/infinitetalk-serverless:cache:
+------
+------
+ > [14/15] RUN python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py:
+5.073     class T5EncoderModel:
+5.073   File "/opt/InfiniteTalk/wan/modules/t5.py", line 483, in T5EncoderModel
+5.073     device=torch.cuda.current_device(),
+5.073   File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 878, in current_device
+5.073     _lazy_init()
+5.073   File "/usr/local/lib/python3.10/dist-packages/torch/cuda/__init__.py", line 314, in _lazy_init
+5.073     torch._C._cuda_init()
+5.073 RuntimeError: Found no NVIDIA driver on your system. Please check that you have an NVIDIA GPU and installed a driver from http://www.nvidia.com/Download/index.aspx
+5.073 
+5.073 Verification interrompue : l'etape ci-dessus a echoue.
+------
+Dockerfile:165
+--------------------
+ 163 |     # ligne affichee nomme le coupable.
+ 164 |     COPY verifier_imports.py /tmp/verifier_imports.py
+ 165 | >>> RUN python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py
+ 166 |     
+ 167 |     # ---------- 9. Handler ----------
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py" did not complete successfully: exit code: 1
