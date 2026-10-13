@@ -1,0 +1,8 @@
+# Les scripts et le Dockerfile sont lus par Linux dans l'image : un CRLF
+# dans un shebang fait echouer le script avec un message incomprehensible
+# ("bad interpreter: no such file or directory"). On force donc LF.
+* text=auto eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.yml text eol=lf
+Dockerfile text eol=lf

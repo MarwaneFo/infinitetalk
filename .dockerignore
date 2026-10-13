@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.git/
+weights/
+refs/
+*.mp4
+*.wav
+*.png
+README.md
+download_weights.sh
+client.py
+.github/

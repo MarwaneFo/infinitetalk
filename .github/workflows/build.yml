@@ -1,0 +1,142 @@
+name: build-infinitetalk
+
+# Construit l'image et la publie sur GHCR.
+#
+# Particularite : en cas d'echec, la fin du journal est poussee sur une
+# branche orpheline `build-logs`. Elle devient lisible directement, sans
+# ouvrir l'interface GitHub :
+#
+#   https://raw.githubusercontent.com/MarwaneFo/infinitetalk/build-logs/infinitetalk.log
+#
+# Cela parait accessoire ; c'est la piece qui a le plus fait gagner de
+# temps sur les workers precedents. Un build de cette taille dure
+# longtemps, et devoir demander une capture d'ecran a chaque echec
+# coutait plus cher que le build lui-meme.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'handler.py'
+      - 'Dockerfile'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+    inputs:
+      ref_amont:
+        description: "Commit du depot MeiGen-AI/InfiniteTalk a figer"
+        required: false
+        default: ""
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/infinitetalk-serverless
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # pour pousser le journal sur build-logs
+      packages: write   # pour publier sur GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # L'image depasse largement les 14 Go libres par defaut sur le
+      # runner : base CUDA devel, torch cu121, xformers, flash-attn.
+      # Sans ce menage, le build echoue sur "no space left on device"
+      # apres quarante minutes, ce qui est le pire des cas.
+      - name: Liberer de l'espace disque
+        run: |
+          echo "--- avant ---"; df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /opt/hostedtoolcache /usr/local/share/boost \
+                      /usr/local/.ghcup "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          docker system prune -af || true
+          echo "--- apres ---"; df -h / | tail -1
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # On appelle buildx directement au lieu de docker/build-push-action :
+      # c'est la seule facon de garder la main sur la sortie et de la
+      # rediriger vers un fichier. `set -o pipefail` est indispensable,
+      # sinon tee renvoie 0 et un echec passe pour un succes.
+      - name: Construire et publier
+        id: build
+        run: |
+          set -o pipefail
+          REF="${{ github.event.inputs.ref_amont }}"
+          ARGS=""
+          if [ -n "$REF" ]; then
+            ARGS="--build-arg INFINITETALK_REF=$REF"
+            echo "Commit amont force : $REF"
+          fi
+          docker buildx build \
+            --progress plain \
+            --push \
+            $ARGS \
+            --tag "${IMAGE}:latest" \
+            --tag "${IMAGE}:${GITHUB_SHA::7}" \
+            --cache-from "type=registry,ref=${IMAGE}:cache" \
+            --cache-to   "type=registry,ref=${IMAGE}:cache,mode=max" \
+            . 2>&1 | tee /tmp/build.log
+
+      - name: Resume
+        if: success()
+        run: |
+          {
+            echo "### Image publiee"
+            echo ""
+            echo '```'
+            echo "${IMAGE}:latest"
+            echo "${IMAGE}:${GITHUB_SHA::7}"
+            echo '```'
+            echo ""
+            echo "Les poids ne sont PAS dans l'image. Monter un volume"
+            echo "reseau et y lancer download_weights.sh avant le premier job."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --- Le journal, en cas d'echec ---
+      - name: Publier la fin du journal
+        if: failure()
+        run: |
+          mkdir -p /tmp/journal
+          {
+            echo "# Build infinitetalk -- ECHEC"
+            echo "commit   : ${GITHUB_SHA}"
+            echo "date     : $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "execution: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "disque   : $(df -h / | tail -1)"
+            echo
+            echo "--- lignes contenant une erreur ---"
+            grep -n -iE "error|failed|cannot|no space|killed|Traceback|AssertionError|ERROR:" \
+              /tmp/build.log | tail -40 || echo "(aucune ligne reconnue)"
+            echo
+            echo "--- 400 dernieres lignes ---"
+            tail -400 /tmp/build.log
+          } > /tmp/journal/infinitetalk.log 2>/dev/null || true
+
+          cd /tmp/journal
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b build-logs
+          git add infinitetalk.log
+          git commit -q -m "journal du build ${GITHUB_SHA::7}"
+          git push -q --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" \
+            build-logs
+
+          {
+            echo "### Build en echec"
+            echo ""
+            echo "Journal lisible directement :"
+            echo ""
+            echo "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build-logs/infinitetalk.log"
+          } >> "$GITHUB_STEP_SUMMARY"
