@@ -76,20 +76,30 @@ RUN pip install "misaki[en]" \
  && pip install librosa
 
 # ---------- 6 bis. Replafonner ce que requirements.txt laisse ouvert ----------
-# Le depot amont se contredit : son README impose torch 2.4.1, mais son
 # requirements.txt ecrit "diffusers>=0.31.0" sans plafond. pip prend donc
-# la derniere version, qui appelle torch.accelerator -- une API apparue
-# avec torch 2.6. L'import casse net :
+# la derniere version publiee, qui appelle torch.accelerator -- une API
+# apparue avec torch 2.6, alors que le README amont impose torch 2.4.1.
+# L'import casse net :
 #
 #     AttributeError: module 'torch' has no attribute 'accelerator'
 #
-# On replafonne apres coup plutot que d'editer requirements.txt : toucher
-# au fichier d'un paquet amont a deja produit un paquet anonyme
-# UNKNOWN-0.0.0 sur un autre worker, et le symptome etait meconnaissable.
-# transformers et accelerate sont ramenes au minimum demande, pour la
-# meme raison -- leurs versions recentes supposent un torch plus neuf.
-RUN pip install "diffusers==0.31.0" "transformers==4.49.0" "accelerate==1.1.1" \
+# Mais le minimum annonce ne marche pas davantage : wan/multitalk.py fait
+#
+#     from diffusers.models.modeling_utils import no_init_weights, ContextManagers
+#
+# et ces deux noms n'apparaissent dans ce module qu'a partir de 0.33.0.
+# La fenetre reellement utilisable est donc 0.33.x a 0.35.x, verifiee nom
+# par nom contre ce que le code amont importe (ConfigMixin,
+# register_to_config, KarrasDiffusionSchedulers, SchedulerMixin,
+# SchedulerOutput, deprecate, is_scipy_available, randn_tensor).
+#
+# On replafonne APRES l'installation plutot que d'editer
+# requirements.txt : modifier le fichier d'un paquet amont a deja produit
+# un UNKNOWN-0.0.0 sur le worker Chatterbox, dont le symptome ne
+# ressemblait en rien a la cause.
+RUN pip install "diffusers==0.33.1" "transformers==4.49.0" "accelerate==1.1.1" \
  && python -c "import torch, diffusers, transformers; \
+from diffusers.models.modeling_utils import no_init_weights, ContextManagers; \
 print('torch', torch.__version__, '| diffusers', diffusers.__version__, \
 '| transformers', transformers.__version__)"
 
