@@ -322,6 +322,177 @@ def _media(entree, dossier, cles_b64, cles_url, cle_nom, defaut_ext):
     return None
 
 
+# ------------------------------- 3 bis. amorcage des poids depuis le worker
+
+# Jeu minimal en fp8 : environ 32 Go. En mode quantifie, le pipeline ne
+# lit jamais les sept fragments bf16 (65,6 Go) ni infinitetalk.safetensors
+# (9,9 Go) -- seul config.json l'est, et le T5 prend sa version fp8.
+_COMPACT = {
+    "Wan-AI/Wan2.1-I2V-14B-480P": [
+        "config.json", "Wan2.1_VAE.pth",
+        "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth",
+        "google/umt5-xxl/*", "xlm-roberta-large/*",
+    ],
+    "MeiGen-AI/InfiniteTalk": [
+        "quant_models/infinitetalk_%(variante)s_fp8.safetensors",
+        "quant_models/infinitetalk_%(variante)s_fp8.json",
+        "quant_models/t5_fp8.safetensors",
+        "quant_models/t5_map_fp8.json",
+        "quant_models/quant.json",
+    ],
+}
+
+# Jeu complet en bf16 : environ 93 Go, mais la LoRA FusionX devient
+# possible, et avec elle 8 pas d'echantillonnage au lieu de 40.
+_COMPLET = {
+    "Wan-AI/Wan2.1-I2V-14B-480P": None,       # tout, sauf les illustrations
+    "MeiGen-AI/InfiniteTalk": ["%(variante)s/infinitetalk.safetensors"],
+}
+
+_WAV2VEC = "TencentGameMate/chinese-wav2vec2-base"
+
+
+def _octets(chemin):
+    """Taille totale d'une arborescence, en octets."""
+    total = 0
+    for racine, _, fichiers in os.walk(chemin):
+        for f in fichiers:
+            try:
+                total += os.path.getsize(os.path.join(racine, f))
+            except OSError:
+                pass
+    return total
+
+
+def _telecharger(entree):
+    """Depose les poids sur le volume reseau, depuis le worker lui-meme.
+
+    Sans pod, il n'existe aucun terminal ou lancer download_weights.sh.
+    Or le worker a le volume monte en ecriture : il peut s'amorcer seul.
+    C'est factur au tarif GPU, donc plus cher qu'un pod CPU -- mais pour
+    une heure, la difference ne justifie pas le detour.
+
+    Le telechargement est REPRENABLE : huggingface_hub saute ce qui est
+    deja la. Si le travail depasse le delai maximum de l'endpoint, il
+    suffit de le relancer, il continuera ou il s'est arrete.
+    """
+    from huggingface_hub import snapshot_download, hf_hub_download
+
+    cible = entree.get("cible") or "/runpod-volume/infinitetalk/weights"
+    mode = entree.get("mode_poids", "compact")
+    if mode not in ("compact", "complet"):
+        return {"error": "mode_poids doit valoir compact ou complet."}
+    variante = os.environ.get("IT_VARIANTE", "single")
+
+    # hf_transfer sature la bande passante : sur des dizaines de Go, la
+    # difference se compte en heures. Mais huggingface_hub LEVE une
+    # erreur si on active le reglage sans que le paquet soit installe --
+    # on verifie donc au lieu de supposer.
+    try:
+        import hf_transfer  # noqa: F401
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+    except ImportError:
+        os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+        print("[poids] hf_transfer absent : telechargement standard",
+              flush=True)
+
+    os.makedirs(cible, exist_ok=True)
+    plan = dict(_COMPACT if mode == "compact" else _COMPLET)
+    etapes, total = {}, time.time()
+
+    for depot, motifs in plan.items():
+        depart = time.time()
+        dossier = os.path.join(cible, depot.split("/")[-1])
+        if depot == "MeiGen-AI/InfiniteTalk":
+            dossier = os.path.join(cible, "InfiniteTalk")
+        args = {"repo_id": depot, "local_dir": dossier,
+                "max_workers": int(entree.get("parallelisme", 8))}
+        if motifs:
+            args["allow_patterns"] = [m % {"variante": variante}
+                                      for m in motifs]
+        else:
+            args["ignore_patterns"] = ["assets/*", "examples/*",
+                                       "*.png", "*.jpg", "*.JPG"]
+        print("[poids] %s -> %s" % (depot, dossier), flush=True)
+        snapshot_download(**args)
+        etapes[depot] = round(time.time() - depart, 1)
+
+    # L'encodeur audio, moins le point de controle fairseq (1,1 Go) que
+    # le code n'utilise pas. Le safetensors vient d'une pull request
+    # encore ouverte : c'est ce que demande le README amont.
+    depart = time.time()
+    dossier = os.path.join(cible, "chinese-wav2vec2-base")
+    print("[poids] %s -> %s" % (_WAV2VEC, dossier), flush=True)
+    snapshot_download(repo_id=_WAV2VEC, local_dir=dossier,
+                      ignore_patterns=["*fairseq*"])
+    try:
+        hf_hub_download(repo_id=_WAV2VEC, filename="model.safetensors",
+                        revision="refs/pr/1", local_dir=dossier)
+    except Exception as exc:
+        print("[poids] safetensors de la PR indisponible : %s" % exc,
+              flush=True)
+    etapes[_WAV2VEC] = round(time.time() - depart, 1)
+
+    attendus = ["Wan2.1-I2V-14B-480P/config.json",
+                "Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth",
+                "Wan2.1-I2V-14B-480P/models_clip_open-clip-xlm-roberta-"
+                "large-vit-huge-14.pth",
+                "chinese-wav2vec2-base/config.json"]
+    if mode == "compact":
+        attendus += ["InfiniteTalk/quant_models/infinitetalk_%s_fp8."
+                     "safetensors" % variante,
+                     "InfiniteTalk/quant_models/t5_fp8.safetensors",
+                     "InfiniteTalk/quant_models/t5_map_fp8.json"]
+    else:
+        attendus += ["Wan2.1-I2V-14B-480P/models_t5_umt5-xxl-enc-bf16.pth",
+                     "Wan2.1-I2V-14B-480P/diffusion_pytorch_model-00007-"
+                     "of-00007.safetensors",
+                     "InfiniteTalk/%s/infinitetalk.safetensors" % variante]
+    manquants = [a for a in attendus
+                 if not os.path.exists(os.path.join(cible, a))]
+
+    return {
+        "action": "telecharger",
+        "mode_poids": mode,
+        "cible": cible,
+        "complet": not manquants,
+        "manquants": manquants,
+        "taille_go": round(_octets(cible) / 1e9, 2),
+        "etapes": etapes,
+        "total_s": round(time.time() - total, 1),
+        "suite": ("Poids en place. Renseigner IT_WEIGHTS=%s%s puis relancer "
+                  "un vrai travail." % (cible, " et IT_QUANT=fp8"
+                                        if mode == "compact" else ""))
+        if not manquants else
+        "Incomplet : relancer ce meme travail, le telechargement reprend.",
+    }
+
+
+def _diagnostic(entree):
+    """Dit ce qui se trouve reellement sur le volume, sans rien charger.
+
+    Evite de deduire l'etat du volume d'un echec de chargement.
+    """
+    racines = [r for r in _RACINES if r] + ["/runpod-volume", "/workspace"]
+    vu = {}
+    for r in racines:
+        if not os.path.isdir(r):
+            vu[r] = "absent"
+            continue
+        try:
+            entrees = sorted(os.listdir(r))[:20]
+        except OSError as exc:
+            vu[r] = "illisible : %s" % exc
+            continue
+        vu[r] = {"contenu": entrees, "taille_go": round(_octets(r) / 1e9, 2)}
+    return {"action": "diagnostic", "racines": vu,
+            "IT_WEIGHTS": os.environ.get("IT_WEIGHTS"),
+            "IT_QUANT": os.environ.get("IT_QUANT"),
+            "IT_VARIANTE": os.environ.get("IT_VARIANTE", "single"),
+            "IT_LOW_VRAM": os.environ.get("IT_LOW_VRAM"),
+            "IT_T5_CPU": os.environ.get("IT_T5_CPU")}
+
+
 def _duree(chemin):
     """Duree d'un media, via ffprobe s'il est present."""
     outil = shutil.which("ffprobe")
@@ -344,6 +515,13 @@ def handler(job):
     entree = job.get("input") or {}
 
     try:
+        # Deux modes de service, traites AVANT tout chargement de modele :
+        # ils doivent fonctionner precisement quand les poids manquent.
+        if _bool(entree.get("diagnostic"), False):
+            return _diagnostic(entree)
+        if _bool(entree.get("telecharger"), False):
+            return _telecharger(entree)
+
         depart = time.time()
         premier = not _ETAT["pret"]
         _charger()

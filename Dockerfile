@@ -145,7 +145,7 @@ import xfuser; print('xfuser remplace :', xfuser.__version__)"
 # D'ou ce bloc final : on desinstalle, on repingle en --no-deps, puis on
 # affirme. Si l'etat n'est pas celui attendu, le build echoue ICI, avec
 # un message d'une ligne, au lieu de laisser le worker mourir en silence.
-RUN pip install runpod requests soundfile \
+RUN pip install runpod requests soundfile "huggingface_hub[hf_transfer]" \
  && (pip uninstall -y gradio gradio-client || true) \
  && pip install --force-reinstall --no-deps "numpy==1.26.4" \
  && python -c "import numpy, torch; \
