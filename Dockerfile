@@ -127,10 +127,13 @@ print('etat final : numpy', numpy.__version__, '| torch', torch.__version__)"
 # ---------- 8. Verification du code amont ----------
 # Un import du pipeline a la construction : si une dependance manque, on
 # l'apprend maintenant et par son nom, pas au premier job sur GPU.
-RUN python -c "import sys; sys.path.insert(0, '${INFINITETALK_ROOT}'); \
-import wan; from wan.configs import WAN_CONFIGS; \
-import generate_infinitetalk; \
-print('pipeline importe, taches :', list(WAN_CONFIGS)[:4])"
+#
+# Les imports sont faits UN PAR UN et annonces avant d'etre tentes. En
+# une seule ligne, le journal ne disait pas lequel avait casse, et il
+# fallait un cycle de build complet pour le deviner. Ici la derniere
+# ligne affichee nomme le coupable.
+COPY verifier_imports.py /tmp/verifier_imports.py
+RUN python /tmp/verifier_imports.py && rm /tmp/verifier_imports.py
 
 # ---------- 9. Handler ----------
 COPY handler.py ${INFINITETALK_ROOT}/handler.py

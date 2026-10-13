@@ -18,6 +18,7 @@ on:
     branches: [main]
     paths:
       - 'handler.py'
+      - 'verifier_imports.py'
       - 'Dockerfile'
       - '.github/workflows/build.yml'
   workflow_dispatch:
@@ -26,6 +27,14 @@ on:
         description: "Commit du depot MeiGen-AI/InfiniteTalk a figer"
         required: false
         default: ""
+
+# Un seul build a la fois. Sans cela, deux poussees rapprochees font
+# tourner deux executions en parallele qui ecrivent toutes deux sur la
+# branche build-logs : celle qui finit en dernier ecrase le journal de
+# l'autre, et on lit l'echec du mauvais commit. C'est arrive.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -129,12 +138,17 @@ jobs:
             tail -400 /tmp/build.log
           } > /tmp/journal/infinitetalk.log 2>/dev/null || true
 
+          # Une copie nommee par le commit, en plus du nom fixe : le nom
+          # fixe reste pratique a lire, la copie garde une trace quand
+          # plusieurs builds se suivent de pres.
+          cp /tmp/journal/infinitetalk.log "/tmp/journal/${GITHUB_SHA::7}.log"
+
           cd /tmp/journal
           git init -q
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -q -b build-logs
-          git add infinitetalk.log
+          git add -A
           git commit -q -m "journal du build ${GITHUB_SHA::7}"
           git push -q --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" \
