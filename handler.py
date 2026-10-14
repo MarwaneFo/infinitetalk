@@ -355,9 +355,38 @@ def _installer_chargement_econome():
     etat = {"modele": None, "copiees": set()}
     load_file_amont = wm.load_file
 
+    import torch
+
     class _WanEconome(wm.WanModel):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+            # Construit SANS allouer (device meta) : le constructeur amont
+            # cree les 14 milliards de parametres en fp32, soit ~66 Go de
+            # RAM avant meme la conversion en bf16. Mesure : OOM a 57,7 Go
+            # sur RTX 6000 Ada. On materialise ensuite chaque parametre
+            # vide, en bf16, directement sur le GPU : la RAM ne porte plus
+            # le modele, et les valeurs viennent des fichiers.
+            with torch.device("meta"):
+                super().__init__(*args, **kwargs)
+            cible = "cuda:0" if torch.cuda.is_available() else "cpu"
+            for module in self.modules():
+                for nom, p in list(module._parameters.items()):
+                    if p is None:
+                        continue
+                    dt = torch.bfloat16 if p.is_floating_point() else p.dtype
+                    module._parameters[nom] = torch.nn.Parameter(
+                        torch.empty(p.shape, dtype=dt, device=cible),
+                        requires_grad=False)
+                for nom, b in list(module._buffers.items()):
+                    if b is None:
+                        continue
+                    dt = torch.bfloat16 if b.is_floating_point() else b.dtype
+                    module._buffers[nom] = torch.empty(b.shape, dtype=dt,
+                                                       device=cible)
+            # freqs est un simple attribut calcule a la construction : il
+            # est reste sur meta. Meme remede que le chemin quantifie amont.
+            self.init_freqs()
+            print("[init] modele materialise vide en bf16 sur %s" % cible,
+                  flush=True)
             etat["modele"] = self
             etat["copiees"] = set()
 
@@ -384,7 +413,7 @@ def _installer_chargement_econome():
                 if cle not in cibles:
                     inattendues.append(cle)
                     continue
-                with torch_no_grad():
+                with torch.no_grad():
                     cibles[cle].data.copy_(f.get_tensor(cle))
                 etat["copiees"].add(cle)
         if inattendues:
@@ -394,10 +423,6 @@ def _installer_chargement_econome():
               flush=True)
         gc.collect()
         return {}
-
-    def torch_no_grad():
-        import torch
-        return torch.no_grad()
 
     wm.WanModel = _WanEconome
     wm.load_file = load_file_econome
