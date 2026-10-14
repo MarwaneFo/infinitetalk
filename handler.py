@@ -33,6 +33,11 @@ import tempfile
 import time
 import traceback
 
+# A poser avant tout import de torch. Essai reel sur RTX 6000 Ada : OOM au
+# premier pas avec 1,25 Go "reserves mais non alloues" -- de la
+# fragmentation que les segments extensibles recuperent.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import runpod
 
 # ---------------------------------------------------------------- 1. chemins
@@ -266,12 +271,8 @@ def _charger():
     if _bool(os.environ.get("IT_T5_CPU"), False):
         _accelerer_t5_cpu(pipeline)
 
-    # Delestage : les parametres du DiT ne restent pas tous en VRAM.
-    # Indispensable sous 80 Go, au prix de la vitesse.
-    if _bool(os.environ.get("IT_LOW_VRAM"), False):
-        pipeline.vram_management = True
-        pipeline.enable_vram_management(num_persistent_param_in_dit=0)
-        print("[init] delestage DiT actif (IT_LOW_VRAM)", flush=True)
+    _clip_hors_gpu(pipeline)
+    _delester(pipeline)
 
     # wav2vec reste sur le CPU : c'est ce que fait le script amont, et ces
     # 380 Mo n'ont rien a gagner a occuper de la VRAM.
@@ -335,6 +336,65 @@ def _installer_suivi():
                             (total - pas) * ecoule / pas))
 
     wm.tqdm = _Barre
+
+
+def _clip_hors_gpu(pipeline):
+    """Renvoie CLIP en RAM apres chaque usage.
+
+    CLIP ne sert qu'une fois par morceau, a encoder l'image de reference.
+    Le code amont ne le decharge qu'avec offload_model, qui decharge aussi
+    le DiT entre deux morceaux -- 33 Go de va-et-vient. Ici, seul CLIP part :
+    ~2,4 Go de VRAM rendus au DiT pendant la diffusion.
+    """
+    import torch
+    clip = pipeline.clip
+    visuel_amont = clip.visual
+
+    def visuel_econome(*args, **kwargs):
+        try:
+            return visuel_amont(*args, **kwargs)
+        finally:
+            clip.model.cpu()
+            torch.cuda.empty_cache()
+
+    clip.visual = visuel_econome
+    clip.model.cpu()
+    torch.cuda.empty_cache()
+
+
+def _delester(pipeline):
+    """Laisse une partie des poids du DiT en RAM, envoyes au GPU a la demande.
+
+    Mesure sur RTX 6000 Ada (44,4 Go utilisables) : DiT + CLIP + VAE
+    occupaient 42,4 Go, et le premier pas en demandait 0,9 de plus.
+
+    IT_DELESTAGE_GO fixe le volume de poids laisses en RAM. Par defaut :
+    0 au-dela de 60 Go de VRAM, 6 en dessous. A la vitesse du PCIe, six Go
+    par passe coutent une fraction de seconde ; et la RAM n'en prend que
+    six, la ou l'ancien IT_LOW_VRAM=1 (tout le DiT, ~38 Go) declencherait
+    un OOM de RAM a cote du T5.
+    """
+    import torch
+    valeur = os.environ.get("IT_DELESTAGE_GO")
+    if _bool(os.environ.get("IT_LOW_VRAM"), False) and valeur is None:
+        valeur = "all"
+    if valeur is None:
+        vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+        valeur = "6" if vram < 60 else "0"
+    if valeur == "0":
+        return
+
+    total = sum(p.numel() for p in pipeline.model.parameters())
+    if valeur == "all":
+        persistants = 0
+    else:
+        octets = next(pipeline.model.parameters()).element_size()
+        persistants = max(0, total - int(float(valeur) * 1e9 / octets))
+    pipeline.vram_management = True
+    pipeline.enable_vram_management(num_persistent_param_in_dit=persistants)
+    torch.cuda.empty_cache()
+    print("[init] delestage DiT : %.1f G parametres sur %.1f restent en VRAM"
+          % (persistants / 1e9, total / 1e9), flush=True)
 
 
 def _coeurs_alloues():
@@ -849,6 +909,7 @@ def _diagnostic(entree):
             "IT_QUANT": os.environ.get("IT_QUANT"),
             "IT_VARIANTE": os.environ.get("IT_VARIANTE", "single"),
             "IT_LOW_VRAM": os.environ.get("IT_LOW_VRAM"),
+            "IT_DELESTAGE_GO": os.environ.get("IT_DELESTAGE_GO"),
             "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
             "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
             "IT_LORA": os.environ.get("IT_LORA")}
