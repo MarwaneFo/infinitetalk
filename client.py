@@ -188,6 +188,8 @@ if __name__ == "__main__":
     p.add_argument("--pas", type=int, default=None,
                    help="pas d'echantillonnage (defaut du worker : 8 avec "
                         "la LoRA, 40 sans)")
+    p.add_argument("--mode", choices=("streaming", "clip"), default="streaming",
+                   help="clip : un seul morceau de 81 images (~3,2 s), pour un essai")
     p.add_argument("--teacache", action="store_true",
                    help="saute les calculs redondants : plus vite, un peu moins net")
     p.add_argument("--delai", type=int, default=5400,
@@ -208,7 +210,8 @@ if __name__ == "__main__":
         reference["reference"] = ref     # nom de fichier sur un volume
 
     jid = lancer(cle, endpoint, audio_base64=_b64(wav), sample_steps=a.pas,
-                 use_teacache=a.teacache, delai_s=a.delai, **reference)
+                 use_teacache=a.teacache, delai_s=a.delai, mode=a.mode,
+                 **reference)
     print("job", jid)
     print("(premier job d'un worker neuf : telechargement des poids, "
           "compter 15 a 30 min)")

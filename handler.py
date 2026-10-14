@@ -263,6 +263,9 @@ def _charger():
         infinitetalk_dir=poids["infinitetalk_dir"],
     )
 
+    if _bool(os.environ.get("IT_T5_CPU"), False):
+        _accelerer_t5_cpu(pipeline)
+
     # Delestage : les parametres du DiT ne restent pas tous en VRAM.
     # Indispensable sous 80 Go, au prix de la vitesse.
     if _bool(os.environ.get("IT_LOW_VRAM"), False):
@@ -332,6 +335,107 @@ def _installer_suivi():
                             (total - pas) * ecoule / pas))
 
     wm.tqdm = _Barre
+
+
+def _coeurs_alloues():
+    """Coeurs reellement alloues au conteneur, pas ceux de la machine hote.
+
+    torch.get_num_threads() voit souvent tous les coeurs de l'hote (parfois
+    plus de cent) quand le conteneur n'en a que seize : le calcul se disperse
+    sur des fils qui se disputent seize coeurs, et ralentit au lieu
+    d'accelerer. On lit le quota cgroup, a defaut l'affinite.
+    """
+    try:
+        quota, periode = open("/sys/fs/cgroup/cpu.max").read().split()
+        if quota != "max":
+            return max(1, int(int(quota) / int(periode)))
+    except (OSError, ValueError):
+        pass
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
+def _ram_libre_go():
+    """RAM encore disponible dans le conteneur, cache de fichiers exclu.
+
+    Le compteur que montre RunPod inclut le cache des 95 Go de poids lus
+    depuis le disque ; ce cache se libere a la demande et ne declenche pas
+    d'OOM. On compare donc la limite cgroup a la memoire anonyme seule.
+    """
+    try:
+        limite = open("/sys/fs/cgroup/memory.max").read().strip()
+        if limite == "max":
+            return None
+        anonyme = 0
+        for ligne in open("/sys/fs/cgroup/memory.stat"):
+            cle, valeur = ligne.split()
+            if cle == "anon":
+                anonyme = int(valeur)
+                break
+        return (int(limite) - anonyme) / 1e9
+    except (OSError, ValueError):
+        return None
+
+
+def _accelerer_t5_cpu(pipeline):
+    """Rend l'encodeur T5 supportable quand il tourne sur le CPU.
+
+    Mesure sur RTX 6000 Ada, IT_T5_CPU=1 : plus de cinq minutes avant le
+    premier pas de diffusion, passees a encoder deux phrases. Le code amont
+    encode l'invite puis l'invite negative a CHAQUE job, en bf16, sur CPU.
+
+    Trois remedes :
+      - limiter les fils au quota reel du conteneur ;
+      - passer T5 en fp32 : les processeurs sans bf16 materiel calculent
+        bien plus vite en fp32 (le double de RAM, ~23 Go, supportable
+        maintenant que le DiT est charge directement sur le GPU) ;
+      - memoriser les encodages : l'invite change rarement, le second job
+        d'un meme worker ne paie plus rien.
+    """
+    import torch
+
+    coeurs = _coeurs_alloues()
+    torch.set_num_threads(coeurs)
+    print("[init] T5 sur CPU : %d fils" % coeurs, flush=True)
+
+    encodeur = pipeline.text_encoder
+    marge = _ram_libre_go()
+    if not _bool(os.environ.get("IT_T5_FP32"), True):
+        pass
+    elif marge is not None and marge < 20:
+        # La conversion ajoute ~11 Go. Un OOM tue le worker sans message :
+        # mieux vaut un T5 lent qu'un worker mort.
+        print("[init] T5 garde en bf16 : %.0f Go de RAM libres seulement"
+              % marge, flush=True)
+    else:
+        encodeur.model.float()
+        print("[init] T5 converti en fp32 pour le CPU (marge RAM : %s Go)"
+              % ("?" if marge is None else "%.0f" % marge), flush=True)
+
+    memoire = {}
+    appel_amont = encodeur.__call__
+
+    class _T5Memorise:
+        """Remplace pipeline.text_encoder ; delegue tout le reste."""
+
+        def __getattr__(self, nom):
+            return getattr(encodeur, nom)
+
+        def __call__(self, textes, device):
+            cle = tuple(textes)
+            if cle not in memoire:
+                depart = time.time()
+                with torch.no_grad():
+                    sortie = appel_amont(textes, device)
+                # Le DiT attend du bf16 : un T5 en fp32 ne doit pas changer
+                # le type de ce qu'il rend.
+                memoire[cle] = [t.to(torch.bfloat16) for t in sortie]
+                _publier("encodage du texte : %.1f s" % (time.time() - depart))
+            return [t.clone() for t in memoire[cle]]
+
+    pipeline.text_encoder = _T5Memorise()
 
 
 def _installer_chargement_econome():
