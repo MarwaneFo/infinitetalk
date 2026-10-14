@@ -242,6 +242,8 @@ def _charger():
     import generate_infinitetalk as gi
 
     _installer_suivi()
+    if not poids["quant"]:
+        _installer_chargement_econome()
 
     cfg = WAN_CONFIGS["infinitetalk-14B"]
     pipeline = wan.InfiniteTalkPipeline(
@@ -330,6 +332,75 @@ def _installer_suivi():
                             (total - pas) * ecoule / pas))
 
     wm.tqdm = _Barre
+
+
+def _installer_chargement_econome():
+    """Charge les poids bf16 tenseur par tenseur, sans dictionnaire geant.
+
+    En mode non quantifie, le code amont cree le modele (~33 Go en bf16),
+    puis charge les sept fragments fp32 ET infinitetalk.safetensors dans un
+    seul dictionnaire (~75 Go) avant load_state_dict : pic d'environ 110 Go
+    de RAM. Les workers RTX 6000 Ada / L40S n'en ont que 62 : le processus
+    serait tue apres vingt minutes de telechargement.
+
+    Ici, chaque fichier est ouvert paresseusement et chaque tenseur copie
+    directement dans le parametre du modele (avec conversion en bf16). Le
+    pic retombe a la taille du modele plus un tenseur. La rigueur de
+    load_state_dict(strict=True) est conservee : cles manquantes ou
+    inattendues levent une erreur explicite.
+    """
+    import wan.multitalk as wm
+    from safetensors import safe_open
+
+    etat = {"modele": None, "copiees": set()}
+    load_file_amont = wm.load_file
+
+    class _WanEconome(wm.WanModel):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            etat["modele"] = self
+            etat["copiees"] = set()
+
+        def load_state_dict(self, state_dict, strict=True, assign=False):
+            if state_dict or self is not etat["modele"]:
+                return super().load_state_dict(state_dict, strict=strict,
+                                               assign=assign)
+            attendues = set(self.state_dict().keys())
+            manquantes = attendues - etat["copiees"]
+            if strict and manquantes:
+                raise RuntimeError("Poids manquants apres chargement : %s"
+                                   % sorted(manquantes)[:10])
+            return None
+
+    def load_file_econome(chemin, device="cpu"):
+        modele = etat["modele"]
+        if modele is None:
+            return load_file_amont(chemin, device=device)
+        cibles = dict(modele.named_parameters())
+        cibles.update(dict(modele.named_buffers()))
+        inattendues = []
+        with safe_open(chemin, framework="pt", device="cpu") as f:
+            for cle in f.keys():
+                if cle not in cibles:
+                    inattendues.append(cle)
+                    continue
+                with torch_no_grad():
+                    cibles[cle].data.copy_(f.get_tensor(cle))
+                etat["copiees"].add(cle)
+        if inattendues:
+            raise RuntimeError("Cles inattendues dans %s : %s"
+                               % (os.path.basename(chemin), inattendues[:10]))
+        print("[init] %s copie dans le modele" % os.path.basename(chemin),
+              flush=True)
+        gc.collect()
+        return {}
+
+    def torch_no_grad():
+        import torch
+        return torch.no_grad()
+
+    wm.WanModel = _WanEconome
+    wm.load_file = load_file_econome
 
 
 # ------------------------------------------------------------ 3. utilitaires
@@ -649,7 +720,9 @@ def _diagnostic(entree):
             "IT_QUANT": os.environ.get("IT_QUANT"),
             "IT_VARIANTE": os.environ.get("IT_VARIANTE", "single"),
             "IT_LOW_VRAM": os.environ.get("IT_LOW_VRAM"),
-            "IT_T5_CPU": os.environ.get("IT_T5_CPU")}
+            "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
+            "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
+            "IT_LORA": os.environ.get("IT_LORA")}
 
 
 def _duree(chemin):
