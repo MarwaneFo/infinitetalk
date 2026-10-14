@@ -238,6 +238,8 @@ def _charger():
     from wan.configs import WAN_CONFIGS
     import generate_infinitetalk as gi
 
+    _installer_suivi()
+
     cfg = WAN_CONFIGS["infinitetalk-14B"]
     pipeline = wan.InfiniteTalkPipeline(
         config=cfg,
@@ -270,6 +272,61 @@ def _charger():
     _ETAT["pret"] = True
     _ETAT["chargement_s"] = round(time.time() - depart, 1)
     print("[init] pret en %.1f s" % _ETAT["chargement_s"], flush=True)
+
+
+# ---------------------------------------------------------------- 2 bis. suivi
+
+# Le job en cours et l'avancement de la diffusion. Sans cela, un job de
+# quarante minutes reste un IN_PROGRESS muet : impossible de distinguer un
+# calcul lent d'un processus fige sans aller lire la jauge GPU.
+_SUIVI = {"job": None, "morceau": 0, "prevus": None}
+
+
+def _publier(message):
+    """Ecrit l'avancement dans les journaux ET dans le statut du job.
+
+    progress_update rend le message lisible par GET /status pendant que le
+    job tourne : le client l'affiche sans ouvrir la console.
+    """
+    print("[suivi] %s" % message, flush=True)
+    if _SUIVI["job"] is not None:
+        try:
+            runpod.serverless.progress_update(_SUIVI["job"], message)
+        except Exception as exc:
+            print("[suivi] progress_update a echoue : %s" % exc, flush=True)
+
+
+def _installer_suivi():
+    """Remplace la barre tqdm du pipeline amont par une barre qui parle.
+
+    La barre d'origine se redessine avec des retours chariot : dans les
+    journaux RunPod, rien n'apparait avant la fin d'un morceau. wan/multitalk
+    resout `tqdm` au moment de l'appel, on peut donc la substituer ici.
+    """
+    import wan.multitalk as wm
+    from tqdm import tqdm as tqdm_amont
+
+    class _Barre(tqdm_amont):
+        def __init__(self, *args, **kwargs):
+            kwargs["disable"] = True        # plus de barre illisible
+            super().__init__(*args, **kwargs)
+            _SUIVI["morceau"] += 1
+
+        def __iter__(self):
+            depart = time.time()
+            total = self.total or 0
+            for pas, element in enumerate(super().__iter__(), 1):
+                yield element
+                ecoule = time.time() - depart
+                prevus = _SUIVI["prevus"]
+                _publier("morceau %d%s | pas %d/%d | %.1f s/pas | reste ~%d s "
+                         "sur ce morceau"
+                         % (_SUIVI["morceau"],
+                            "/%d" % prevus if prevus else "",
+                            pas, total, ecoule / pas,
+                            (total - pas) * ecoule / pas))
+
+    wm.tqdm = _Barre
 
 
 # ------------------------------------------------------------ 3. utilitaires
@@ -419,7 +476,7 @@ def _telecharger(entree):
         else:
             args["ignore_patterns"] = ["assets/*", "examples/*",
                                        "*.png", "*.jpg", "*.JPG"]
-        print("[poids] %s -> %s" % (depot, dossier), flush=True)
+        _publier("telechargement %s" % depot)
         snapshot_download(**args)
         etapes[depot] = round(time.time() - depart, 1)
 
@@ -428,7 +485,7 @@ def _telecharger(entree):
     # encore ouverte : c'est ce que demande le README amont.
     depart = time.time()
     dossier = os.path.join(cible, "chinese-wav2vec2-base")
-    print("[poids] %s -> %s" % (_WAV2VEC, dossier), flush=True)
+    _publier("telechargement %s" % _WAV2VEC)
     snapshot_download(repo_id=_WAV2VEC, local_dir=dossier,
                       ignore_patterns=["*fairseq*"])
     try:
@@ -574,6 +631,7 @@ def handler(job):
     total = time.time()
     etapes = {}
     entree = job.get("input") or {}
+    _SUIVI.update(job=job, morceau=0, prevus=None)
 
     try:
         # Deux modes de service, traites AVANT tout chargement de modele :
@@ -585,11 +643,14 @@ def handler(job):
 
         premier = not _ETAT["pret"]
         if premier:
+            _publier("verification des poids")
             duree = _amorcer_local()
             if duree is not None:
                 etapes["telechargement"] = duree
 
         depart = time.time()
+        if premier:
+            _publier("chargement du modele")
         _charger()
         if premier:
             etapes["chargement"] = round(time.time() - depart, 1)
@@ -672,6 +733,13 @@ def handler(job):
                 clip["bbox"] = entree["bbox"]
 
             # --- diffusion : l'etape longue
+            # Morceaux prevus : 81 images, dont motion_frame de recouvrement.
+            images = int(len(parole) / 16000 * 25)
+            pas_morceau = max(1, 81 - args.motion_frame)
+            _SUIVI["prevus"] = (1 if images <= 81 or mode == "clip"
+                                else 1 + -(-(images - 81) // pas_morceau))
+            _publier("diffusion : %d morceau(x) de %d pas prevus"
+                     % (_SUIVI["prevus"], args.sample_steps))
             depart = time.time()
             video = _ETAT["pipeline"].generate_infinitetalk(
                 clip,
@@ -692,6 +760,7 @@ def handler(job):
             etapes["diffusion"] = round(time.time() - depart, 1)
 
             # --- ecriture du MP4 et retour
+            _publier("encodage du MP4")
             depart = time.time()
             from wan.utils.multitalk_utils import save_video_ffmpeg
             base = os.path.join(travail, "sortie")

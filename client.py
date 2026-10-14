@@ -56,7 +56,7 @@ def lancer(cle, endpoint, audio_base64=None, reference=None, *,
            text_guide_scale=5.0, audio_guide_scale=4.0, motion_frame=9,
            max_frame_num=1000, seed=42, color_correction_strength=1.0,
            use_teacache=False, teacache_thresh=0.2, use_apg=False,
-           benchmark=False, webhook=None):
+           benchmark=False, webhook=None, delai_s=3600):
     """Met un job en file. Renvoie son identifiant."""
     entree = {
         "size": size,
@@ -85,7 +85,11 @@ def lancer(cle, endpoint, audio_base64=None, reference=None, *,
     if benchmark:
         entree["benchmark"] = True
 
-    charge = {"input": entree}
+    # Delai porte par le job lui-meme : il prime sur celui de l'endpoint.
+    # Le premier job d'un worker neuf telecharge ~32 Go avant de generer,
+    # et le delai par defaut de la console (600 s) ne suffit pas.
+    charge = {"input": entree,
+              "policy": {"executionTimeout": int(delai_s * 1000)}}
     if webhook:
         # Le rappel se place A COTE de input, jamais dedans.
         charge["webhook"] = webhook
@@ -118,7 +122,8 @@ def status(cle, endpoint, job_id, essais=6, pause=10):
     raise RuntimeError("Etat illisible apres %d essais (%s)" % (essais, dernier))
 
 
-def attendre(cle, endpoint, job_id, pause=10, plafond=7200, trace=None):
+def attendre(cle, endpoint, job_id, pause=10, plafond=7200, trace=None,
+             suivi=None):
     """Suit un job jusqu'a son terme et renvoie sa sortie.
 
     Leve une exception si la sortie porte une erreur applicative : un job
@@ -130,6 +135,10 @@ def attendre(cle, endpoint, job_id, pause=10, plafond=7200, trace=None):
         statut = etat.get("status")
         if trace:
             trace(statut, round(time.time() - depart, 1))
+        # Pendant IN_PROGRESS, `output` porte le dernier message publie par
+        # le worker (progress_update) : etape en cours, pas de diffusion.
+        if suivi and statut == "IN_PROGRESS" and etat.get("output"):
+            suivi(etat["output"])
         if statut in ("COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"):
             break
         if time.time() - depart > plafond:
@@ -187,8 +196,16 @@ if __name__ == "__main__":
     print("job", jid)
     print("(premier job d'un worker neuf : telechargement des poids, "
           "compter 15 a 30 min)")
+    vu = {"dernier": None}
+
+    def _suivi(message):
+        if message != vu["dernier"]:
+            vu["dernier"] = message
+            print("           > %s" % message)
+
     sortie = attendre(cle, endpoint, jid,
-                      trace=lambda s, t: print("  %6.1f s  %s" % (t, s)))
+                      trace=lambda s, t: print("  %6.1f s  %s" % (t, s)),
+                      suivi=_suivi)
 
     nom = "%s_%s.mp4" % (os.path.splitext(os.path.basename(wav))[0],
                          datetime.now().strftime("%Y%m%d-%H%M%S"))
