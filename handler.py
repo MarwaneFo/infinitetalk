@@ -205,6 +205,9 @@ def _args_amont(**surcharges):
             argv += [drapeau, str(surcharges.pop(cle))]
     if "sample_steps" in surcharges:
         argv += ["--sample_steps", str(int(surcharges.pop("sample_steps")))]
+    if surcharges.get("sample_shift") is not None:
+        argv += ["--sample_shift", str(float(surcharges.pop("sample_shift")))]
+    surcharges.pop("sample_shift", None)
 
     ancien = sys.argv
     try:
@@ -531,12 +534,24 @@ def _telecharger(entree):
     }
 
 
+# LoRA FusionX : distillation qui ramene l'echantillonnage a 8 pas, avec
+# un guidage texte a 1 (deux passes du modele par pas au lieu de trois).
+_FUSIONX_DEPOT = "vrgamedevgirl84/Wan14BT2VFusioniX"
+_FUSIONX_FICHIER = "FusionX_LoRa/Wan2.1_I2V_14B_FusionX_LoRA.safetensors"
+
+
 def _amorcer_local():
-    """Telecharge le jeu compact sur le disque du conteneur s'il manque.
+    """Telecharge les poids sur le disque du conteneur s'ils manquent.
 
     Ne fait rien quand un volume porte deja les poids. Sinon, premier job
-    d'un worker neuf : environ 32 Go a rapatrier avant le chargement, ce
+    d'un worker neuf : les poids sont rapatries avant le chargement, ce
     qui compte dans le delai d'execution du job. Renvoie la duree, ou None.
+
+    IT_MODE_POIDS choisit le jeu :
+      compact -- ~32 Go, fp8, 40 pas. Mesure sur A40 : 210 s par pas, soit
+                 plus de deux heures par morceau. Inutilisable en production.
+      rapide  -- ~95 Go, bf16 + LoRA FusionX, 8 pas. Demande 80 Go de VRAM
+                 et ~120 Go de Container Disk.
     """
     hors_local = [r for r in _RACINES if r and r != _LOCAL]
     if _premiere_racine(hors_local, "Wan2.1-I2V-14B-480P",
@@ -545,38 +560,64 @@ def _amorcer_local():
     if not _bool(os.environ.get("IT_AUTO_POIDS"), True):
         return None
 
-    # Le jeu compact ne se charge qu'en fp8 : le poser d'office, sinon le
-    # worker irait chercher les fragments bf16 qui ne sont pas la.
-    if not os.environ.get("IT_QUANT"):
-        os.environ["IT_QUANT"] = "fp8"
-
+    mode = os.environ.get("IT_MODE_POIDS", "compact")
+    if mode not in ("compact", "rapide"):
+        raise RuntimeError("IT_MODE_POIDS doit valoir compact ou rapide.")
     variante = os.environ.get("IT_VARIANTE", "single")
-    attendus = ["Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth",
-                "chinese-wav2vec2-base/config.json",
-                "InfiniteTalk/quant_models/infinitetalk_%s_fp8.safetensors"
-                % variante,
-                "InfiniteTalk/quant_models/t5_fp8.safetensors"]
+    lora = os.path.join(_LOCAL, _FUSIONX_FICHIER)
+
+    if mode == "compact":
+        # Le jeu compact ne se charge qu'en fp8 : le poser d'office, sinon
+        # le worker irait chercher les fragments bf16 qui ne sont pas la.
+        if not os.environ.get("IT_QUANT"):
+            os.environ["IT_QUANT"] = "fp8"
+        attendus = ["Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth",
+                    "chinese-wav2vec2-base/config.json",
+                    "InfiniteTalk/quant_models/infinitetalk_%s_fp8.safetensors"
+                    % variante,
+                    "InfiniteTalk/quant_models/t5_fp8.safetensors"]
+        besoin_go = 36
+    else:
+        # La LoRA est refusee en presence de quantification : l'oter.
+        os.environ.pop("IT_QUANT", None)
+        if not os.environ.get("IT_LORA"):
+            os.environ["IT_LORA"] = lora
+        attendus = ["Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth",
+                    "Wan2.1-I2V-14B-480P/models_t5_umt5-xxl-enc-bf16.pth",
+                    "Wan2.1-I2V-14B-480P/diffusion_pytorch_model-00007-"
+                    "of-00007.safetensors",
+                    "chinese-wav2vec2-base/config.json",
+                    "InfiniteTalk/%s/infinitetalk.safetensors" % variante,
+                    _FUSIONX_FICHIER]
+        besoin_go = 100
     if all(os.path.exists(os.path.join(_LOCAL, a)) for a in attendus):
         return None
 
-    # Verifier la place AVANT : un disque plein a 30 Go sur 32 coute vingt
-    # minutes de GPU pour rien, et l'erreur de huggingface_hub est obscure.
+    # Verifier la place AVANT : un disque plein en fin de telechargement
+    # coute vingt minutes de GPU pour rien, et l'erreur est obscure.
     os.makedirs(_LOCAL, exist_ok=True)
     libre = shutil.disk_usage(_LOCAL).free / 1e9
     deja = _octets(_LOCAL) / 1e9
-    if libre + deja < 36:
+    if libre + deja < besoin_go:
         raise RuntimeError(
             "Disque du conteneur trop petit : %.0f Go libres, il en faut "
-            "environ 36 pour les poids fp8. Monter le Container Disk de "
-            "l'endpoint a 60 Go." % libre)
+            "environ %d pour le mode %s. Monter le Container Disk de "
+            "l'endpoint a %d Go." % (libre, besoin_go, mode,
+                                     60 if mode == "compact" else 130))
 
-    print("[poids] aucun volume : telechargement sur %s (%.0f Go libres)"
-          % (_LOCAL, libre), flush=True)
+    print("[poids] aucun volume : mode %s, telechargement sur %s "
+          "(%.0f Go libres)" % (mode, _LOCAL, libre), flush=True)
     depart = time.time()
-    r = _telecharger({"cible": _LOCAL, "mode_poids": "compact"})
+    r = _telecharger({"cible": _LOCAL, "mode_poids":
+                      "compact" if mode == "compact" else "complet"})
     if not r.get("complet"):
         raise RuntimeError("Telechargement incomplet, manquent : %s"
                            % r.get("manquants"))
+    if mode == "rapide" and not os.path.exists(lora):
+        from huggingface_hub import hf_hub_download
+        _publier("telechargement LoRA FusionX")
+        hf_hub_download(repo_id=_FUSIONX_DEPOT, filename=_FUSIONX_FICHIER,
+                        local_dir=_LOCAL)
     return round(time.time() - depart, 1)
 
 
@@ -685,14 +726,25 @@ def handler(job):
             if mode not in ("streaming", "clip"):
                 return {"error": "mode doit valoir streaming ou clip."}
 
+            # Avec la LoRA FusionX, les reglages de reference changent :
+            # 8 pas, guidage texte 1 (deux passes par pas), audio 2, shift 2.
+            # Une requete peut toujours les surcharger.
+            if _ETAT["poids"]["lora_dir"]:
+                d_pas, d_texte, d_audio, d_shift = 8, 1.0, 2.0, 2.0
+            else:
+                d_pas, d_texte, d_audio, d_shift = 40, 5.0, 4.0, None
+            shift = entree.get("sample_shift", d_shift)
             args = _args_amont(
                 size=taille,
                 mode=mode,
-                sample_steps=_borne(entree.get("sample_steps", 40), 1, 60, 40),
+                sample_steps=_borne(entree.get("sample_steps", d_pas),
+                                    1, 60, d_pas),
+                sample_shift=(None if shift is None
+                              else _borne(shift, 0.5, 20.0, 2.0)),
                 sample_text_guide_scale=_borne(
-                    entree.get("text_guide_scale", 5.0), 1.0, 10.0, 5.0),
+                    entree.get("text_guide_scale", d_texte), 1.0, 10.0, d_texte),
                 sample_audio_guide_scale=_borne(
-                    entree.get("audio_guide_scale", 4.0), 1.0, 10.0, 4.0),
+                    entree.get("audio_guide_scale", d_audio), 1.0, 10.0, d_audio),
                 motion_frame=_borne(entree.get("motion_frame", 9), 1, 25, 9),
                 max_frame_num=_borne(
                     entree.get("max_frame_num", 1000), 81, 5000, 1000),

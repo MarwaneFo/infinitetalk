@@ -52,8 +52,8 @@ def _poster(url, entetes, charge, essais=4):
 def lancer(cle, endpoint, audio_base64=None, reference=None, *,
            audio_url=None, image_base64=None, image_url=None,
            video_base64=None, video_url=None, prompt=None,
-           size="infinitetalk-480", mode="streaming", sample_steps=40,
-           text_guide_scale=5.0, audio_guide_scale=4.0, motion_frame=9,
+           size="infinitetalk-480", mode="streaming", sample_steps=None,
+           text_guide_scale=None, audio_guide_scale=None, motion_frame=9,
            max_frame_num=1000, seed=42, color_correction_strength=1.0,
            use_teacache=False, teacache_thresh=0.2, use_apg=False,
            benchmark=False, webhook=None, delai_s=3600):
@@ -61,9 +61,6 @@ def lancer(cle, endpoint, audio_base64=None, reference=None, *,
     entree = {
         "size": size,
         "mode": mode,
-        "sample_steps": int(sample_steps),
-        "text_guide_scale": float(text_guide_scale),
-        "audio_guide_scale": float(audio_guide_scale),
         "motion_frame": int(motion_frame),
         "max_frame_num": int(max_frame_num),
         "seed": int(seed),
@@ -72,6 +69,14 @@ def lancer(cle, endpoint, audio_base64=None, reference=None, *,
         "teacache_thresh": float(teacache_thresh),
         "use_apg": bool(use_apg),
     }
+    # Laisses vides, le worker choisit : 40 pas / 5 / 4 sans LoRA, et
+    # 8 pas / 1 / 2 avec la LoRA FusionX. Forcer 40 pas ici annulerait
+    # tout le gain de la LoRA.
+    for cle_e, valeur in (("sample_steps", sample_steps),
+                          ("text_guide_scale", text_guide_scale),
+                          ("audio_guide_scale", audio_guide_scale)):
+        if valeur is not None:
+            entree[cle_e] = valeur
     for cle_e, valeur in (("audio_base64", audio_base64),
                           ("audio_url", audio_url),
                           ("reference", reference),
@@ -170,18 +175,28 @@ def _b64(chemin):
 
 if __name__ == "__main__":
     # Usage : python client.py voix.wav visage.png [dossier_sortie]
+    #         [--pas 20] [--teacache] [--delai 5400]
     # La reference peut etre une image ou une video (.mp4), sur ce PC.
     # Variables : RUNPOD_KEY et INFINITETALK_ENDPOINT.
-    import sys
+    import argparse
     from datetime import datetime
 
-    if len(sys.argv) < 3:
-        sys.exit("Usage : python client.py voix.wav visage.png [dossier_sortie]")
+    p = argparse.ArgumentParser()
+    p.add_argument("wav")
+    p.add_argument("ref")
+    p.add_argument("dossier", nargs="?", default="videos")
+    p.add_argument("--pas", type=int, default=None,
+                   help="pas d'echantillonnage (defaut du worker : 8 avec "
+                        "la LoRA, 40 sans)")
+    p.add_argument("--teacache", action="store_true",
+                   help="saute les calculs redondants : plus vite, un peu moins net")
+    p.add_argument("--delai", type=int, default=5400,
+                   help="duree maximale du job, en secondes")
+    a = p.parse_args()
 
     cle = os.environ["RUNPOD_KEY"]
     endpoint = os.environ["INFINITETALK_ENDPOINT"]
-    wav, ref = sys.argv[1], sys.argv[2]
-    dossier = sys.argv[3] if len(sys.argv) > 3 else "videos"
+    wav, ref, dossier = a.wav, a.ref, a.dossier
     os.makedirs(dossier, exist_ok=True)
 
     reference = {}
@@ -192,7 +207,8 @@ if __name__ == "__main__":
     else:
         reference["reference"] = ref     # nom de fichier sur un volume
 
-    jid = lancer(cle, endpoint, audio_base64=_b64(wav), **reference)
+    jid = lancer(cle, endpoint, audio_base64=_b64(wav), sample_steps=a.pas,
+                 use_teacache=a.teacache, delai_s=a.delai, **reference)
     print("job", jid)
     print("(premier job d'un worker neuf : telechargement des poids, "
           "compter 15 a 30 min)")
