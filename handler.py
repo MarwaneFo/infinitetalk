@@ -477,25 +477,55 @@ def _accelerer_t5_cpu(pipeline):
     memoire = {}
     appel_amont = encodeur.__call__
 
+    class _ModeleImmobile:
+        """Le T5 reste sur le CPU : .to(cuda) et .cpu() deviennent sans effet.
+
+        La branche GPU amont commence par text_encoder.model.to(device) ;
+        sans ce garde-fou, elle y enverrait 11 a 23 Go de T5.
+        """
+
+        def to(self, *args, **kwargs):
+            return self
+
+        def cpu(self):
+            return self
+
+        def __getattr__(self, nom):
+            return getattr(encodeur.model, nom)
+
     class _T5Memorise:
-        """Remplace pipeline.text_encoder ; delegue tout le reste."""
+        """Remplace pipeline.text_encoder ; delegue tout le reste.
+
+        Le pipeline est force sur sa branche GPU (t5_cpu = False) : la
+        branche CPU amont est fausse. Elle construit 'context': [context]
+        avec un context qui est deja une liste, d'ou une liste de listes et
+        "'list' object has no attribute 'dtype'" au premier pas -- constate
+        sur L40S. La branche GPU, elle, depaquete les deux encodages. On
+        calcule ici sur le CPU, et on rend des tenseurs bf16 sur le GPU.
+        """
+
+        model = _ModeleImmobile()
 
         def __getattr__(self, nom):
             return getattr(encodeur, nom)
 
         def __call__(self, textes, device):
-            cle = tuple(textes)
-            if cle not in memoire:
-                depart = time.time()
-                with torch.no_grad():
-                    sortie = appel_amont(textes, device)
-                # Le DiT attend du bf16 : un T5 en fp32 ne doit pas changer
-                # le type de ce qu'il rend.
-                memoire[cle] = [t.to(torch.bfloat16) for t in sortie]
-                _publier("encodage du texte : %.1f s" % (time.time() - depart))
-            return [t.clone() for t in memoire[cle]]
+            sortie = []
+            for texte in textes:
+                if texte not in memoire:
+                    depart = time.time()
+                    with torch.no_grad():
+                        t = appel_amont([texte], torch.device("cpu"))[0]
+                    # Le DiT attend du bf16 : un T5 en fp32 ne doit pas
+                    # changer le type de ce qu'il rend.
+                    memoire[texte] = t.to(torch.bfloat16)
+                    _publier("encodage du texte : %.1f s"
+                             % (time.time() - depart))
+                sortie.append(memoire[texte].to(device))
+            return sortie
 
     pipeline.text_encoder = _T5Memorise()
+    pipeline.t5_cpu = False
 
 
 def _installer_chargement_econome():
