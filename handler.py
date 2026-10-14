@@ -39,6 +39,11 @@ import runpod
 
 INFINITETALK_ROOT = os.environ.get("INFINITETALK_ROOT", "/opt/InfiniteTalk")
 
+# Sans volume reseau, le worker depose ses poids ici, sur le disque du
+# conteneur. Ce disque est EPHEMERE : il disparait avec le worker, et le
+# worker suivant retelecharge. C'est le prix de l'absence de volume.
+_LOCAL = os.environ.get("IT_WEIGHTS_LOCAL", "/opt/weights")
+
 # Racines ou chercher les poids, dans l'ordre. Le volume reseau RunPod est
 # monte sur /runpod-volume en serverless et sur /workspace sur un pod.
 _RACINES = [
@@ -46,6 +51,7 @@ _RACINES = [
     "/runpod-volume/infinitetalk/weights",
     "/runpod-volume/weights",
     "/workspace/infinitetalk/weights",
+    _LOCAL,
     os.path.join(INFINITETALK_ROOT, "weights"),
 ]
 
@@ -468,6 +474,55 @@ def _telecharger(entree):
     }
 
 
+def _amorcer_local():
+    """Telecharge le jeu compact sur le disque du conteneur s'il manque.
+
+    Ne fait rien quand un volume porte deja les poids. Sinon, premier job
+    d'un worker neuf : environ 32 Go a rapatrier avant le chargement, ce
+    qui compte dans le delai d'execution du job. Renvoie la duree, ou None.
+    """
+    hors_local = [r for r in _RACINES if r and r != _LOCAL]
+    if _premiere_racine(hors_local, "Wan2.1-I2V-14B-480P",
+                        "chinese-wav2vec2-base"):
+        return None
+    if not _bool(os.environ.get("IT_AUTO_POIDS"), True):
+        return None
+
+    # Le jeu compact ne se charge qu'en fp8 : le poser d'office, sinon le
+    # worker irait chercher les fragments bf16 qui ne sont pas la.
+    if not os.environ.get("IT_QUANT"):
+        os.environ["IT_QUANT"] = "fp8"
+
+    variante = os.environ.get("IT_VARIANTE", "single")
+    attendus = ["Wan2.1-I2V-14B-480P/Wan2.1_VAE.pth",
+                "chinese-wav2vec2-base/config.json",
+                "InfiniteTalk/quant_models/infinitetalk_%s_fp8.safetensors"
+                % variante,
+                "InfiniteTalk/quant_models/t5_fp8.safetensors"]
+    if all(os.path.exists(os.path.join(_LOCAL, a)) for a in attendus):
+        return None
+
+    # Verifier la place AVANT : un disque plein a 30 Go sur 32 coute vingt
+    # minutes de GPU pour rien, et l'erreur de huggingface_hub est obscure.
+    os.makedirs(_LOCAL, exist_ok=True)
+    libre = shutil.disk_usage(_LOCAL).free / 1e9
+    deja = _octets(_LOCAL) / 1e9
+    if libre + deja < 36:
+        raise RuntimeError(
+            "Disque du conteneur trop petit : %.0f Go libres, il en faut "
+            "environ 36 pour les poids fp8. Monter le Container Disk de "
+            "l'endpoint a 60 Go." % libre)
+
+    print("[poids] aucun volume : telechargement sur %s (%.0f Go libres)"
+          % (_LOCAL, libre), flush=True)
+    depart = time.time()
+    r = _telecharger({"cible": _LOCAL, "mode_poids": "compact"})
+    if not r.get("complet"):
+        raise RuntimeError("Telechargement incomplet, manquent : %s"
+                           % r.get("manquants"))
+    return round(time.time() - depart, 1)
+
+
 def _diagnostic(entree):
     """Dit ce qui se trouve reellement sur le volume, sans rien charger.
 
@@ -485,6 +540,12 @@ def _diagnostic(entree):
             vu[r] = "illisible : %s" % exc
             continue
         vu[r] = {"contenu": entrees, "taille_go": round(_octets(r) / 1e9, 2)}
+    try:
+        disque = shutil.disk_usage(_LOCAL if os.path.isdir(_LOCAL) else "/")
+        vu["disque_conteneur"] = {"libre_go": round(disque.free / 1e9, 1),
+                                  "total_go": round(disque.total / 1e9, 1)}
+    except OSError:
+        pass
     return {"action": "diagnostic", "racines": vu,
             "IT_WEIGHTS": os.environ.get("IT_WEIGHTS"),
             "IT_QUANT": os.environ.get("IT_QUANT"),
@@ -522,8 +583,13 @@ def handler(job):
         if _bool(entree.get("telecharger"), False):
             return _telecharger(entree)
 
-        depart = time.time()
         premier = not _ETAT["pret"]
+        if premier:
+            duree = _amorcer_local()
+            if duree is not None:
+                etapes["telechargement"] = duree
+
+        depart = time.time()
         _charger()
         if premier:
             etapes["chargement"] = round(time.time() - depart, 1)

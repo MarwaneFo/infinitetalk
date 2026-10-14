@@ -154,24 +154,47 @@ def ecrire_video(sortie, chemin):
     return len(donnees)
 
 
+def _b64(chemin):
+    with open(chemin, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+
 if __name__ == "__main__":
-    # Essai minimal : INFINITETALK_ENDPOINT, RUNPOD_KEY et un WAV local.
+    # Usage : python client.py voix.wav visage.png [dossier_sortie]
+    # La reference peut etre une image ou une video (.mp4), sur ce PC.
+    # Variables : RUNPOD_KEY et INFINITETALK_ENDPOINT.
     import sys
+    from datetime import datetime
+
+    if len(sys.argv) < 3:
+        sys.exit("Usage : python client.py voix.wav visage.png [dossier_sortie]")
 
     cle = os.environ["RUNPOD_KEY"]
     endpoint = os.environ["INFINITETALK_ENDPOINT"]
-    wav = sys.argv[1] if len(sys.argv) > 1 else "voix.wav"
-    ref = sys.argv[2] if len(sys.argv) > 2 else "inna.png"
+    wav, ref = sys.argv[1], sys.argv[2]
+    dossier = sys.argv[3] if len(sys.argv) > 3 else "videos"
+    os.makedirs(dossier, exist_ok=True)
 
-    with open(wav, "rb") as f:
-        audio = base64.b64encode(f.read()).decode()
+    reference = {}
+    if os.path.isfile(ref):
+        cle_ref = ("video_base64" if ref.lower().endswith((".mp4", ".mov"))
+                   else "image_base64")
+        reference[cle_ref] = _b64(ref)
+    else:
+        reference["reference"] = ref     # nom de fichier sur un volume
 
-    jid = lancer(cle, endpoint, audio_base64=audio, reference=ref)
+    jid = lancer(cle, endpoint, audio_base64=_b64(wav), **reference)
     print("job", jid)
+    print("(premier job d'un worker neuf : telechargement des poids, "
+          "compter 15 a 30 min)")
     sortie = attendre(cle, endpoint, jid,
                       trace=lambda s, t: print("  %6.1f s  %s" % (t, s)))
-    octets = ecrire_video(sortie, "sortie.mp4")
-    print("sortie.mp4 : %.1f Mo" % (octets / 1e6))
+
+    nom = "%s_%s.mp4" % (os.path.splitext(os.path.basename(wav))[0],
+                         datetime.now().strftime("%Y%m%d-%H%M%S"))
+    chemin = os.path.join(dossier, nom)
+    octets = ecrire_video(sortie, chemin)
+    print("%s : %.1f Mo" % (os.path.abspath(chemin), octets / 1e6))
     print("cout : %s s de GPU par seconde de video"
           % sortie.get("s_par_seconde"))
     print("etapes :", sortie.get("etapes"))
