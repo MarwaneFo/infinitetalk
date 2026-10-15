@@ -328,12 +328,21 @@ def _installer_suivi():
                 yield element
                 ecoule = time.time() - depart
                 prevus = _SUIVI["prevus"]
+                # La VRAM occupee, a chaque pas : sur une video de 30 s, un
+                # OOM est survenu au 5e morceau sur 11, la memoire montant
+                # d'un morceau a l'autre. Ce chiffre le rend visible tot.
+                try:
+                    import torch
+                    vram = " | VRAM %.1f Go" % (torch.cuda.memory_allocated()
+                                                / 1e9)
+                except Exception:
+                    vram = ""
                 _publier("morceau %d%s | pas %d/%d | %.1f s/pas | reste ~%d s "
-                         "sur ce morceau"
+                         "sur ce morceau%s"
                          % (_SUIVI["morceau"],
                             "/%d" % prevus if prevus else "",
                             pas, total, ecoule / pas,
-                            (total - pas) * ecoule / pas))
+                            (total - pas) * ecoule / pas, vram))
 
     wm.tqdm = _Barre
 
@@ -369,10 +378,12 @@ def _delester(pipeline):
     occupaient 42,4 Go, et le premier pas en demandait 0,9 de plus.
 
     IT_DELESTAGE_GO fixe le volume de poids laisses en RAM. Par defaut :
-    0 au-dela de 60 Go de VRAM, 6 en dessous. A la vitesse du PCIe, six Go
-    par passe coutent une fraction de seconde ; et la RAM n'en prend que
-    six, la ou l'ancien IT_LOW_VRAM=1 (tout le DiT, ~38 Go) declencherait
-    un OOM de RAM a cote du T5.
+    0 au-dela de 60 Go de VRAM, 12 en dessous. Six suffisaient pour un
+    morceau, pas pour une video de 30 s : OOM dans le decodage VAE au 5e
+    morceau sur 11 (L40S, 42,7 Go alloues). Douze Go par passe ajoutent
+    ~20 s a un morceau de 4 min, et n'en prennent que douze en RAM, la ou
+    l'ancien IT_LOW_VRAM=1 (tout le DiT, ~38 Go) declencherait un OOM de
+    RAM a cote du T5.
     """
     import torch
     valeur = os.environ.get("IT_DELESTAGE_GO")
@@ -380,7 +391,7 @@ def _delester(pipeline):
         valeur = "all"
     if valeur is None:
         vram = torch.cuda.get_device_properties(0).total_memory / 1e9
-        valeur = "6" if vram < 60 else "0"
+        valeur = "12" if vram < 60 else "0"
     if valeur == "0":
         return
 

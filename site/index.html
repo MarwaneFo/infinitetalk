@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio InfiniteTalk</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1f23; --dim: #6b7079;
+    --line: #e3e1dc; --accent: #2f5bea; --accent-ink: #ffffff;
+    --soft: #eef2fd; --ok: #1f8a4c; --err: #c4372c; --warn: #9a6a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --panel: #1a1d22; --ink: #e8eaed; --dim: #9aa1ab;
+      --line: #2c3139; --accent: #6b8cff; --accent-ink: #0d1020;
+      --soft: #1e2534; --ok: #5fd08f; --err: #ff8a80; --warn: #e6b450;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 system-ui, "Segoe UI", Roboto, sans-serif; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 28px 16px 60px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 24px; color: var(--dim); }
+  .grille { display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+            gap: 22px; align-items: start; }
+  @media (max-width: 860px) { .grille { grid-template-columns: minmax(0, 1fr); } }
+  .carte { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 12px; padding: 18px; }
+  h2 { font-size: 15px; margin: 0 0 14px; }
+  .etape { margin-bottom: 18px; }
+  .etape > .titre { font-size: 12.5px; text-transform: uppercase;
+                    letter-spacing: .06em; color: var(--dim); margin-bottom: 8px; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--bg); color: var(--ink);
+    font: inherit; }
+  textarea { min-height: 110px; resize: vertical; }
+  .depot { display: flex; gap: 12px; align-items: center; padding: 12px;
+           border: 1.5px dashed var(--line); border-radius: 10px; cursor: pointer; }
+  .depot:hover { border-color: var(--accent); }
+  .depot img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px;
+               background: var(--soft); flex: none; }
+  .depot .vide { width: 64px; height: 64px; border-radius: 8px; flex: none;
+                 background: var(--soft); display: grid; place-items: center;
+                 color: var(--accent); font-size: 26px; }
+  .depot small { color: var(--dim); display: block; }
+  input[type=file] { display: none; }
+  .bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+             background: var(--bg); border: 1px solid var(--line);
+             border-radius: 9px; padding: 4px; margin-bottom: 10px; }
+  .bascule button { border: 0; background: transparent; color: var(--dim);
+                    padding: 8px; border-radius: 6px; font: inherit; cursor: pointer; }
+  .bascule button.on { background: var(--panel); color: var(--ink);
+                       box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .rangee { display: flex; gap: 10px; margin-top: 10px; }
+  .rangee > * { flex: 1; min-width: 0; }
+  label.petit { font-size: 12.5px; color: var(--dim); display: block; margin-bottom: 4px; }
+  .styles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .style { border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px;
+           cursor: pointer; background: var(--bg); text-align: left; color: var(--ink);
+           font: inherit; }
+  .style b { display: block; font-size: 14px; }
+  .style span { font-size: 12.5px; color: var(--dim); }
+  .style.on { border-color: var(--accent); background: var(--soft); }
+  .compteur { font-size: 12px; color: var(--dim); text-align: right; margin-top: 4px; }
+  .estimation { background: var(--soft); border-radius: 9px; padding: 10px 12px;
+                font-size: 13px; color: var(--ink); margin-bottom: 14px; }
+  .principal { width: 100%; background: var(--accent); color: var(--accent-ink);
+               border: 0; border-radius: 9px; padding: 12px; font: 600 15px/1 inherit;
+               cursor: pointer; }
+  .principal:disabled { opacity: .5; cursor: not-allowed; }
+  .message { margin-top: 10px; font-size: 13.5px; min-height: 1.2em; }
+  .message.err { color: var(--err); }
+  .travail { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px;
+             padding: 14px 0; border-top: 1px solid var(--line); }
+  .travail:first-of-type { border-top: 0; padding-top: 0; }
+  .travail img.vignette { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+  .travail .tete { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .travail .nom { font-weight: 600; overflow-wrap: anywhere; }
+  .pastille { font-size: 12px; padding: 2px 9px; border-radius: 99px;
+              border: 1px solid var(--line); white-space: nowrap; }
+  .pastille.termine { color: var(--ok); border-color: currentColor; }
+  .pastille.erreur { color: var(--err); border-color: currentColor; }
+  .pastille.cours { color: var(--warn); border-color: currentColor; }
+  .meta { font-size: 12.5px; color: var(--dim); }
+  .etat { font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .erreur-txt { color: var(--err); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  video { width: 100%; border-radius: 9px; margin-top: 10px; background: #000; }
+  .actions { display: flex; gap: 12px; margin-top: 6px; font-size: 13px; }
+  .actions a, .actions button { color: var(--accent); background: none; border: 0;
+                                padding: 0; font: inherit; cursor: pointer; text-decoration: none; }
+  .vide-liste { color: var(--dim); font-size: 14px; }
+  .barre { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden;
+           margin-top: 8px; }
+  .barre > i { display: block; height: 100%; width: 40%; background: var(--accent);
+               animation: glisse 1.6s ease-in-out infinite; }
+  @keyframes glisse { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .barre > i { animation: none; width: 100%; opacity: .5; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+      <h1>Studio InfiniteTalk</h1>
+      <a href="/deconnexion" style="color:var(--dim);font-size:13px">D&eacute;connexion</a>
+    </div>
+    <p>Un visage, un texte ou un audio, un style : une vid&eacute;o parlante.</p>
+  </header>
+
+  <div class="grille">
+    <form class="carte" id="formulaire">
+      <h2>Nouvelle vid&eacute;o</h2>
+
+      <div class="etape">
+        <div class="titre">1 &middot; Le visage</div>
+        <label class="depot" for="visage">
+          <span class="vide" id="apercu-vide">+</span>
+          <img id="apercu" alt="" hidden>
+          <span><span id="nom-visage">Choisir une photo</span>
+            <small>Portrait de face, bien &eacute;clair&eacute; &mdash; PNG, JPG ou WEBP</small></span>
+        </label>
+        <input type="file" id="visage" accept="image/png,image/jpeg,image/webp">
+      </div>
+
+      <div class="etape">
+        <div class="titre">2 &middot; Ce qu'il dit</div>
+        <div class="bascule" role="tablist">
+          <button type="button" class="on" data-source="texte">Texte</button>
+          <button type="button" data-source="audio">Fichier audio</button>
+        </div>
+        <div id="bloc-texte">
+          <textarea id="texte" placeholder="Bonjour, et bienvenue dans ce module..."></textarea>
+          <div class="compteur" id="compteur"></div>
+          <div class="rangee">
+            <div><label class="petit" for="voix">Voix</label><select id="voix"></select></div>
+            <div><label class="petit" for="langue">Langue</label><select id="langue"></select></div>
+          </div>
+        </div>
+        <div id="bloc-audio" hidden>
+          <label class="depot" for="audio">
+            <span class="vide">&#9835;</span>
+            <span><span id="nom-audio">Choisir un fichier audio</span>
+              <small id="info-audio">WAV, MP3, M4A&hellip;</small></span>
+          </label>
+          <input type="file" id="audio" accept="audio/*">
+        </div>
+      </div>
+
+      <div class="etape">
+        <div class="titre">3 &middot; Le style</div>
+        <div class="styles" id="styles"></div>
+      </div>
+
+      <div class="etape">
+        <div class="titre">4 &middot; Nom de la vid&eacute;o <span style="text-transform:none">(facultatif)</span></div>
+        <input type="text" id="titre" maxlength="80" placeholder="Module 2 &mdash; introduction">
+      </div>
+
+      <div class="estimation" id="estimation">Dur&eacute;e estim&eacute;e : &mdash;</div>
+      <button class="principal" id="lancer" type="submit">G&eacute;n&eacute;rer la vid&eacute;o</button>
+      <div class="message" id="message"></div>
+    </form>
+
+    <section class="carte">
+      <h2>Mes vid&eacute;os</h2>
+      <div id="liste"><p class="vide-liste">Chargement&hellip;</p></div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  var DESCRIPTIONS = {
+    serieux: "Calme, neutre, peu de mouvement",
+    souriant: "Chaleureux, sourire naturel",
+    enthousiaste: "Énergique, expressif",
+    pedagogue: "Posé, rassurant, e-learning"
+  };
+  var source = "texte", style = "serieux", options = null, dureeAudio = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function choix(select, valeurs) {
+    select.innerHTML = "";
+    Object.keys(valeurs).forEach(function (k) {
+      var o = document.createElement("option");
+      o.value = k; o.textContent = valeurs[k]; select.appendChild(o);
+    });
+  }
+
+  function dessinerStyles() {
+    var boite = $("styles"); boite.innerHTML = "";
+    Object.keys(options.styles).forEach(function (k) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "style" + (k === style ? " on" : "");
+      var t = document.createElement("b"); t.textContent = options.styles[k];
+      var d = document.createElement("span"); d.textContent = DESCRIPTIONS[k] || "";
+      b.appendChild(t); b.appendChild(d);
+      b.onclick = function () { style = k; dessinerStyles(); };
+      boite.appendChild(b);
+    });
+  }
+
+  /* Mesure sur L40S : ~2 min de GPU par seconde de video, plus ~5 min quand
+     un GPU doit demarrer. La lecture d'un texte francais tourne autour de
+     15 caracteres par seconde. */
+  function estimer() {
+    var secondes = source === "texte" ? $("texte").value.trim().length / 15 : dureeAudio;
+    if (!secondes) { $("estimation").textContent = "Durée estimée : —"; return; }
+    secondes = Math.max(secondes, 3.4);
+    var minutes = Math.round(secondes * 2 + 5);
+    $("estimation").textContent = "Vidéo d'environ " + Math.round(secondes) +
+      " s — calcul estimé : " + minutes + " min. Vous pouvez fermer la page, " +
+      "la vidéo apparaîtra dans « Mes vidéos ».";
+  }
+
+  $("texte").oninput = function () {
+    $("compteur").textContent = $("texte").value.length + " / " + options.texte_max + " caractères";
+    estimer();
+  };
+
+  document.querySelectorAll(".bascule button").forEach(function (b) {
+    b.onclick = function () {
+      source = b.dataset.source;
+      document.querySelectorAll(".bascule button").forEach(function (x) {
+        x.classList.toggle("on", x === b);
+      });
+      $("bloc-texte").hidden = source !== "texte";
+      $("bloc-audio").hidden = source !== "audio";
+      estimer();
+    };
+  });
+
+  $("visage").onchange = function () {
+    var f = this.files[0]; if (!f) { return; }
+    $("nom-visage").textContent = f.name;
+    $("apercu").src = URL.createObjectURL(f);
+    $("apercu").hidden = false; $("apercu-vide").hidden = true;
+  };
+
+  $("audio").onchange = function () {
+    var f = this.files[0]; if (!f) { return; }
+    $("nom-audio").textContent = f.name;
+    var a = new Audio(URL.createObjectURL(f));
+    a.onloadedmetadata = function () {
+      dureeAudio = a.duration;
+      $("info-audio").textContent = a.duration.toFixed(1) + " s" +
+        (a.duration > options.audio_max_s ? " — au-delà de la limite de " + options.audio_max_s + " s" : "");
+      estimer();
+    };
+  };
+
+  function message(texte, erreur) {
+    $("message").textContent = texte || "";
+    $("message").className = "message" + (erreur ? " err" : "");
+  }
+
+  $("formulaire").onsubmit = async function (e) {
+    e.preventDefault();
+    var visage = $("visage").files[0];
+    if (!visage) { return message("Choisissez d'abord une photo du visage.", true); }
+    var donnees = new FormData();
+    donnees.append("visage", visage);
+    donnees.append("style", style);
+    donnees.append("source", source);
+    donnees.append("titre", $("titre").value);
+    if (source === "texte") {
+      if (!$("texte").value.trim()) { return message("Écrivez le texte à prononcer.", true); }
+      donnees.append("texte", $("texte").value);
+      donnees.append("voix", $("voix").value);
+      donnees.append("langue", $("langue").value);
+    } else {
+      var a = $("audio").files[0];
+      if (!a) { return message("Choisissez un fichier audio.", true); }
+      donnees.append("audio", a);
+    }
+    $("lancer").disabled = true; message("Envoi…");
+    try {
+      var r = await fetch("/api/travaux", { method: "POST", body: donnees });
+      if (r.status === 401) { location.href = "/connexion"; return; }
+      var j = await r.json();
+      if (!r.ok) { throw new Error(j.detail || ("erreur " + r.status)); }
+      message("Demande enregistrée. Suivez l'avancement à droite.");
+      rafraichir();
+    } catch (err) {
+      message(err.message, true);
+    }
+    $("lancer").disabled = false;
+  };
+
+  var STATUTS = { attente: "En attente", voix: "Voix en cours", video: "Vidéo en cours",
+                  termine: "Terminée", erreur: "Échec" };
+  var lecteursOuverts = {};
+
+  function carteTravail(t) {
+    var d = document.createElement("div"); d.className = "travail";
+    var img = document.createElement("img"); img.className = "vignette";
+    img.src = "/api/travaux/" + t.id + "/visage"; img.alt = "";
+    var corps = document.createElement("div");
+
+    var tete = document.createElement("div"); tete.className = "tete";
+    var nom = document.createElement("span"); nom.className = "nom";
+    nom.textContent = t.titre || (t.texte ? t.texte.slice(0, 48) + (t.texte.length > 48 ? "…" : "") : "Vidéo du " + new Date(t.cree * 1000).toLocaleString("fr-FR"));
+    var p = document.createElement("span");
+    var enCours = ["attente", "voix", "video"].indexOf(t.statut) >= 0;
+    p.className = "pastille " + (t.statut === "termine" ? "termine" : t.statut === "erreur" ? "erreur" : "cours");
+    p.textContent = STATUTS[t.statut] || t.statut;
+    tete.appendChild(nom); tete.appendChild(p);
+    corps.appendChild(tete);
+
+    var meta = document.createElement("div"); meta.className = "meta";
+    var bouts = [t.style_nom, new Date(t.cree * 1000).toLocaleString("fr-FR")];
+    if (t.duree_audio) { bouts.push(t.duree_audio.toFixed(1) + " s"); }
+    if (t.total_gpu_s) { bouts.push(Math.round(t.total_gpu_s / 60) + " min de calcul"); }
+    meta.textContent = bouts.filter(Boolean).join(" · ");
+    corps.appendChild(meta);
+
+    if (enCours) {
+      var etat = document.createElement("div"); etat.className = "etat";
+      etat.textContent = t.etape || "En attente";
+      corps.appendChild(etat);
+      var barre = document.createElement("div"); barre.className = "barre";
+      barre.appendChild(document.createElement("i"));
+      corps.appendChild(barre);
+    }
+    if (t.statut === "erreur" && t.erreur) {
+      var er = document.createElement("div"); er.className = "erreur-txt";
+      er.textContent = t.erreur; corps.appendChild(er);
+    }
+    var actions = document.createElement("div"); actions.className = "actions";
+    if (t.video) {
+      var voir = document.createElement("button"); voir.type = "button";
+      voir.textContent = lecteursOuverts[t.id] ? "Masquer" : "Regarder";
+      voir.onclick = function () { lecteursOuverts[t.id] = !lecteursOuverts[t.id]; rafraichir(); };
+      var dl = document.createElement("a"); dl.href = t.video; dl.textContent = "Télécharger";
+      dl.setAttribute("download", "");
+      actions.appendChild(voir); actions.appendChild(dl);
+    }
+    if (enCours) {
+      var stop = document.createElement("button"); stop.type = "button"; stop.textContent = "Annuler";
+      stop.onclick = async function () {
+        if (!confirm("Annuler ce rendu ? Le calcul déjà effectué reste facturé.")) { return; }
+        await fetch("/api/travaux/" + t.id + "/annuler", { method: "POST" });
+        rafraichir();
+      };
+      actions.appendChild(stop);
+    }
+    if (actions.childNodes.length) { corps.appendChild(actions); }
+    if (t.video && lecteursOuverts[t.id]) {
+      var v = document.createElement("video");
+      v.controls = true; v.src = t.video; v.preload = "metadata";
+      corps.appendChild(v);
+    }
+    d.appendChild(img); d.appendChild(corps);
+    return d;
+  }
+
+  var signature = "";
+  async function rafraichir() {
+    try {
+      var r = await fetch("/api/travaux");
+      if (r.status === 401) { location.href = "/connexion"; return; }
+      var travaux = await r.json();
+      /* Ne pas reconstruire la liste si rien n'a change : sinon une video
+         en cours de lecture repartirait de zero toutes les dix secondes. */
+      var s = JSON.stringify(travaux) + JSON.stringify(lecteursOuverts);
+      if (s === signature) { return; }
+      var lecture = document.querySelector("#liste video");
+      if (lecture && !lecture.paused) { return; }
+      signature = s;
+      var liste = $("liste"); liste.innerHTML = "";
+      if (!travaux.length) {
+        liste.innerHTML = '<p class="vide-liste">Aucune vidéo pour l\'instant.</p>';
+        return;
+      }
+      travaux.forEach(function (t) { liste.appendChild(carteTravail(t)); });
+    } catch (err) { /* reseau passager : on reessaiera */ }
+  }
+
+  fetch("/api/options").then(function (r) { return r.json(); }).then(function (o) {
+    options = o;
+    choix($("voix"), o.voix); choix($("langue"), o.langues);
+    dessinerStyles();
+    $("texte").oninput();
+    if (!o.voix_disponible) {
+      document.querySelector('[data-source="audio"]').click();
+      document.querySelector('[data-source="texte"]').disabled = true;
+    }
+    rafraichir();
+    setInterval(rafraichir, 10000);
+  });
+})();
+</script>
+</body>
+</html>

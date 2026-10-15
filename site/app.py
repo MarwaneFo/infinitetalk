@@ -1,0 +1,631 @@
+"""
+Studio InfiniteTalk : un visage, un texte ou un audio, un style -> une video.
+
+    SITE_PASSWORD=... RUNPOD_KEY=... INFINITETALK_ENDPOINT=... \
+    CHATTERBOX_ENDPOINT=... uvicorn app:app --host 0.0.0.0 --port 8000
+
+Le site est un intermediaire : il garde les cles RunPod, depose les travaux,
+les suit, et range les videos. Le navigateur ne voit jamais une cle.
+
+Un rendu dure longtemps -- mesure sur L40S : ~2 min de GPU par seconde de
+video. Chaque demande devient donc un travail persistant (un fichier JSON),
+suivi par un fil en arriere-plan. L'utilisateur peut fermer la page ; au
+redemarrage du serveur, les travaux en cours sont repris la ou ils etaient.
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+import wave
+
+import requests
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Request,
+                     UploadFile)
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+
+ICI = os.path.dirname(os.path.abspath(__file__))
+DONNEES = os.environ.get("DATA_DIR", os.path.join(ICI, "donnees"))
+TRAVAUX = os.path.join(DONNEES, "travaux")
+VIDEOS = os.path.join(DONNEES, "videos")
+os.makedirs(TRAVAUX, exist_ok=True)
+os.makedirs(VIDEOS, exist_ok=True)
+
+CLE = os.environ.get("RUNPOD_KEY", "").strip()
+IT_ID = os.environ.get("INFINITETALK_ENDPOINT", "").strip()
+CB_ID = os.environ.get("CHATTERBOX_ENDPOINT", "").strip()
+CB_CLE = os.environ.get("CHATTERBOX_KEY", CLE).strip()
+MOT_DE_PASSE = os.environ.get("SITE_PASSWORD", "")
+UTILISATEUR = os.environ.get("SITE_USER", "studio")
+
+# Garde-fous de cout. Un morceau de 81 images (3,24 s) coute ~7 min de L40S :
+# une minute d'audio, c'est deja deux heures de GPU.
+AUDIO_MAX_S = float(os.environ.get("AUDIO_MAX_S", "60"))
+TEXTE_MAX = int(os.environ.get("TEXTE_MAX", "900"))
+# InfiniteTalk refuse un audio qui ne depasse pas un morceau (81 images a
+# 25 i/s, soit 3,24 s) : l'assertion amont exige strictement plus.
+AUDIO_MIN_S = 3.3
+# Jusqu'a cette duree, un seul morceau suffit : mode "clip". Au-dela, le mode
+# "streaming" enchaine les morceaux -- et en genere au moins DEUX des que
+# l'audio depasse 81 images (lu dans wan/multitalk.py). 3,4 s en streaming
+# couterait deux morceaux, ~14 min de GPU au lieu de 7.
+CLIP_MAX_S = 3.3
+
+API = "https://api.runpod.ai/v2"
+
+# ------------------------------------------------------------------ styles
+# Le style agit a deux endroits : la description de scene donnee a
+# InfiniteTalk (Wan2.1 est un modele texte-vers-video, l'invite pilote
+# l'attitude), et l'expressivite de Chatterbox quand la voix est synthetisee.
+STYLES = {
+    "serieux": {
+        "nom": "Serieux / professionnel",
+        "invite": "A person speaks directly to the camera in a calm, "
+                  "professional and composed manner, neutral expression, "
+                  "minimal head movement, steady framing, soft even studio "
+                  "lighting.",
+        "expressivite": 0.40,
+    },
+    "souriant": {
+        "nom": "Content / souriant",
+        "invite": "A person speaks warmly to the camera with a gentle, "
+                  "genuine smile, cheerful and friendly expression, relaxed "
+                  "natural head movement, bright and soft lighting.",
+        "expressivite": 0.60,
+    },
+    "enthousiaste": {
+        "nom": "Enthousiaste / dynamique",
+        "invite": "A person speaks to the camera with energy and enthusiasm, "
+                  "lively facial expressions, expressive eyebrows, animated "
+                  "head movements and nods, bright lighting, steady framing.",
+        "expressivite": 0.85,
+    },
+    "pedagogue": {
+        "nom": "Bienveillant / pedagogue",
+        "invite": "A friendly teacher speaks kindly to the camera, calm and "
+                  "reassuring, warm eyes, slow natural nods, patient and "
+                  "attentive expression, soft classroom lighting.",
+        "expressivite": 0.50,
+    },
+}
+
+VOIX = {"inna": "Inna (feminine)", "mehdi": "Mehdi (masculine)",
+        "voix3": "Voix 3 (clonee)"}
+LANGUES = {"fr": "Francais", "en": "Anglais", "es": "Espagnol",
+           "de": "Allemand", "it": "Italien", "pt": "Portugais",
+           "ar": "Arabe", "nl": "Neerlandais"}
+
+# ------------------------------------------------------------ authentification
+# Une page de connexion et un cookie signe, plutot que l'authentification
+# HTTP Basic : la fenetre native du navigateur n'apparait pas partout (le
+# navigateur integre de VS Code renvoie un sec "Not authenticated"), et un
+# site destine a d'autres personnes merite une vraie porte d'entree.
+COOKIE = "studio_session"
+DUREE_SESSION = 30 * 24 * 3600
+
+
+def _cle_session():
+    # Derivee du mot de passe : en changer deconnecte tout le monde.
+    return hashlib.sha256(("session:" + MOT_DE_PASSE).encode()).digest()
+
+
+def _signer(expiration):
+    return hmac.new(_cle_session(), str(expiration).encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def _session_valide(jeton):
+    try:
+        expiration, signature = jeton.split(".", 1)
+        return (int(expiration) > time.time()
+                and hmac.compare_digest(signature, _signer(int(expiration))))
+    except (AttributeError, ValueError):
+        return False
+
+
+def _authentifie(request):
+    if not MOT_DE_PASSE:
+        raise HTTPException(503, "SITE_PASSWORD non defini sur le serveur.")
+    if _session_valide(request.cookies.get(COOKIE, "")):
+        return True
+    # Acces par script (curl -u) : HTTP Basic reste accepte, sans jamais
+    # etre reclame au navigateur.
+    entete = request.headers.get("authorization", "")
+    if entete.lower().startswith("basic "):
+        try:
+            nom, mdp = base64.b64decode(entete[6:]).decode().split(":", 1)
+        except (ValueError, UnicodeDecodeError):
+            return False
+        return (secrets.compare_digest(nom, UTILISATEUR)
+                & secrets.compare_digest(mdp, MOT_DE_PASSE))
+    return False
+
+
+def verifier(request: Request):
+    """Garde de toutes les routes. Sans SITE_PASSWORD, le site refuse tout :
+    il pilote des GPU factures, il ne doit jamais etre ouvert par oubli."""
+    if not _authentifie(request):
+        raise HTTPException(401, "Connexion requise.")
+    return UTILISATEUR
+
+
+PAGE_CONNEXION = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio InfiniteTalk</title><style>
+:root{--bg:#f6f5f2;--panel:#fff;--ink:#1d1f23;--dim:#6b7079;--line:#e3e1dc;
+--accent:#2f5bea;--accent-ink:#fff;--err:#c4372c}
+@media (prefers-color-scheme:dark){:root{--bg:#121417;--panel:#1a1d22;
+--ink:#e8eaed;--dim:#9aa1ab;--line:#2c3139;--accent:#6b8cff;--accent-ink:#0d1020;
+--err:#ff8a80}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;
+place-items:center;background:var(--bg);color:var(--ink);
+font:15px/1.5 system-ui,"Segoe UI",Roboto,sans-serif;padding:16px}
+form{width:100%;max-width:340px;background:var(--panel);border:1px solid var(--line);
+border-radius:12px;padding:24px}h1{font-size:19px;margin:0 0 4px}
+p{color:var(--dim);margin:0 0 18px;font-size:14px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;
+background:var(--bg);color:var(--ink);font:inherit;margin-bottom:12px}
+button{width:100%;padding:11px;border:0;border-radius:8px;background:var(--accent);
+color:var(--accent-ink);font:600 15px/1 inherit;cursor:pointer}
+.err{color:var(--err);font-size:13.5px;margin:0 0 12px}</style></head><body>
+<form method="post" action="/connexion"><h1>Studio InfiniteTalk</h1>
+<p>Entrez le mot de passe pour continuer.</p>__ERREUR__
+<input type="password" name="mot_de_passe" placeholder="Mot de passe"
+ autocomplete="current-password" autofocus required>
+<button type="submit">Se connecter</button></form></body></html>"""
+
+
+app = FastAPI(title="Studio InfiniteTalk")
+
+# ------------------------------------------------------------------ travaux
+_verrou = threading.Lock()
+
+
+def _chemin(tid):
+    return os.path.join(TRAVAUX, "%s.json" % tid)
+
+
+def lire(tid):
+    with _verrou:
+        with open(_chemin(tid), encoding="utf-8") as f:
+            return json.load(f)
+
+
+def ecrire(t):
+    """Ecriture atomique : un arret brutal ne laisse pas un JSON coupe."""
+    with _verrou:
+        tmp = _chemin(t["id"]) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(t, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, _chemin(t["id"]))
+
+
+def maj(tid, **champs):
+    t = lire(tid)
+    t.update(champs)
+    t["maj"] = time.time()
+    ecrire(t)
+    return t
+
+
+def journal(tid, message):
+    t = lire(tid)
+    t.setdefault("journal", []).append([round(time.time()), message])
+    t["etape"] = message
+    t["maj"] = time.time()
+    ecrire(t)
+
+
+# ------------------------------------------------------------------ RunPod
+def _entetes(cle):
+    return {"Authorization": "Bearer %s" % cle,
+            "Content-Type": "application/json"}
+
+
+def deposer(endpoint, cle, charge, quoi="job"):
+    """POST /run. Ne rejoue que les echecs survenus AVANT toute reponse :
+    un POST abouti a cree un job facture, le rejouer le facturerait deux fois.
+    """
+    derniere = None
+    for n in range(4):
+        try:
+            r = requests.post("%s/%s/run" % (API, endpoint),
+                              headers=_entetes(cle), json=charge, timeout=120)
+        except requests.RequestException as exc:
+            derniere = exc
+            time.sleep(2 ** n)
+            continue
+        if r.status_code == 409 and "max_workers" in r.text:
+            raise RuntimeError("%s : l'endpoint RunPod %s est en pause "
+                               "(Max workers = 0). Le remettre a 1 au moins."
+                               % (quoi, endpoint))
+        if r.status_code >= 400:
+            raise RuntimeError("%s : RunPod %s : %s"
+                               % (quoi, r.status_code, r.text[:300]))
+        return r.json()["id"]
+    raise RuntimeError("RunPod injoignable : %s" % derniere)
+
+
+def etat(endpoint, cle, job):
+    """GET /status, en tolerant les 404 et 5xx passagers de RunPod."""
+    for n in range(8):
+        try:
+            r = requests.get("%s/%s/status/%s" % (API, endpoint, job),
+                             headers=_entetes(cle), timeout=60)
+            if r.status_code == 200:
+                return r.json()
+        except requests.RequestException:
+            pass
+        time.sleep(10)
+    raise RuntimeError("etat du job %s illisible" % job)
+
+
+def attendre(tid, endpoint, cle, job, quoi):
+    """Suit un job RunPod jusqu'a son terme ; relaie son avancement."""
+    vu = None
+    while True:
+        s = etat(endpoint, cle, job)
+        statut = s.get("status")
+        if statut == "COMPLETED":
+            sortie = s.get("output") or {}
+            if isinstance(sortie, dict) and sortie.get("error"):
+                raise RuntimeError("%s : %s" % (quoi, sortie["error"]))
+            return sortie
+        if statut in ("FAILED", "CANCELLED", "TIMED_OUT"):
+            detail = s.get("error") or (s.get("output") or {})
+            if isinstance(detail, dict):
+                detail = detail.get("error") or json.dumps(detail)[:300]
+            raise RuntimeError("%s : %s (%s)" % (quoi, statut, detail))
+        # Pendant IN_PROGRESS, output porte le dernier message du worker
+        # (progress_update) : telechargement, pas de diffusion, etc.
+        message = s.get("output") if statut == "IN_PROGRESS" else None
+        if isinstance(message, str) and message != vu:
+            vu = message
+            journal(tid, "%s : %s" % (quoi, message))
+        elif statut == "IN_QUEUE" and vu != "file":
+            vu = "file"
+            journal(tid, "%s : en file d'attente (demarrage d'un GPU)" % quoi)
+        time.sleep(10)
+
+
+# ------------------------------------------------------------------ audio
+def _ffmpeg():
+    if shutil.which("ffmpeg"):
+        return "ffmpeg"
+    import imageio_ffmpeg
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def preparer_audio(donnees):
+    """Tout audio -> WAV 16 kHz mono, complete par du silence si trop court.
+
+    InfiniteTalk travaille a 16 kHz et exige au moins un morceau entier
+    (3,24 s) : un audio plus court echoue sur une assertion, constate.
+    Renvoie (octets_wav, duree_s).
+    """
+    d = tempfile.mkdtemp(prefix="audio_")
+    try:
+        entree = os.path.join(d, "entree")
+        sortie = os.path.join(d, "sortie.wav")
+        with open(entree, "wb") as f:
+            f.write(donnees)
+        r = subprocess.run([_ffmpeg(), "-y", "-v", "error", "-i", entree,
+                            "-ac", "1", "-ar", "16000",
+                            "-af", "apad=whole_dur=%.2f" % AUDIO_MIN_S,
+                            sortie], capture_output=True)
+        if r.returncode or not os.path.exists(sortie):
+            raise ValueError("audio illisible : %s"
+                             % r.stderr.decode(errors="replace")[:200])
+        with wave.open(sortie) as w:
+            duree = w.getnframes() / float(w.getframerate())
+        with open(sortie, "rb") as f:
+            return f.read(), duree
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def delai_job_s(duree_audio):
+    """Delai d'execution a porter par le job InfiniteTalk.
+
+    Premier job d'un worker neuf : ~5 min de telechargement et chargement.
+    Puis ~7 min par morceau de 3,24 s (72 images nouvelles par morceau
+    suivant). Marge du simple au double : un job coupe est perdu et paye.
+    """
+    if duree_audio <= CLIP_MAX_S:
+        morceaux = 1
+    else:
+        morceaux = 1 + max(1, -(-(int(duree_audio * 25) - 81) // 72))
+    return int(min(6 * 3600, 2 * (600 + morceaux * 450)))
+
+
+# ------------------------------------------------------------------ pipeline
+def executer(tid):
+    """Texte -> voix (Chatterbox) -> video (InfiniteTalk) -> fichier MP4."""
+    try:
+        t = lire(tid)
+        style = STYLES[t["style"]]
+
+        # --- 1. la voix
+        if t.get("audio_pret"):
+            with open(os.path.join(TRAVAUX, "%s.wav" % tid), "rb") as f:
+                wav = f.read()
+        elif t["source"] == "texte":
+            if not CB_ID:
+                raise RuntimeError("CHATTERBOX_ENDPOINT non configure.")
+            job = t.get("job_voix")
+            if not job:
+                entree = {"text": t["texte"], "language": t["langue"],
+                          "voice": t["voix"],
+                          "exaggeration": style["expressivite"],
+                          "temperature": 0.8, "cfg_weight": 0.5}
+                job = deposer(CB_ID, CB_CLE, {"input": entree}, "voix")
+                maj(tid, job_voix=job, statut="voix")
+                journal(tid, "Synthese de la voix (Chatterbox)")
+            sortie = attendre(tid, CB_ID, CB_CLE, job, "voix")
+            wav, duree = preparer_audio(base64.b64decode(sortie["audio_base64"]))
+            if duree > AUDIO_MAX_S + 0.5:
+                raise RuntimeError("La voix generee dure %.0f s, au-dela de la "
+                                   "limite de %.0f s. Raccourcir le texte."
+                                   % (duree, AUDIO_MAX_S))
+            with open(os.path.join(TRAVAUX, "%s.wav" % tid), "wb") as f:
+                f.write(wav)
+            maj(tid, audio_pret=True, duree_audio=round(duree, 2))
+            journal(tid, "Voix prete : %.1f s" % duree)
+        else:
+            raise RuntimeError("audio manquant")
+
+        # --- 2. la video
+        t = lire(tid)
+        job = t.get("job_video")
+        if not job:
+            with open(os.path.join(TRAVAUX, "%s.img" % tid), "rb") as f:
+                image = base64.b64encode(f.read()).decode()
+            entree = {"audio_base64": base64.b64encode(wav).decode(),
+                      "image_base64": image,
+                      "image_ext": t.get("image_ext", "png"),
+                      "prompt": style["invite"],
+                      "size": "infinitetalk-480",
+                      "mode": ("clip" if t["duree_audio"] <= CLIP_MAX_S
+                               else "streaming"),
+                      "max_frame_num": int(t["duree_audio"] * 25) + 10}
+            charge = {"input": entree, "policy": {
+                "executionTimeout": delai_job_s(t["duree_audio"]) * 1000}}
+            job = deposer(IT_ID, CLE, charge, "video")
+            maj(tid, job_video=job, statut="video")
+            journal(tid, "Animation du visage (InfiniteTalk), %.1f s d'audio"
+                    % t["duree_audio"])
+        sortie = attendre(tid, IT_ID, CLE, job, "video")
+
+        # --- 3. le fichier
+        chemin = os.path.join(VIDEOS, "%s.mp4" % tid)
+        with open(chemin, "wb") as f:
+            f.write(base64.b64decode(sortie["video_base64"]))
+        maj(tid, statut="termine", video=True,
+            gpu=sortie.get("gpu"), total_gpu_s=sortie.get("total_s"),
+            s_par_seconde=sortie.get("s_par_seconde"))
+        journal(tid, "Video prete")
+    except Exception as exc:
+        try:
+            maj(tid, statut="erreur", erreur=str(exc)[:600])
+            journal(tid, "Erreur : %s" % str(exc)[:300])
+        except Exception:
+            pass
+
+
+def lancer(tid):
+    threading.Thread(target=executer, args=(tid,), daemon=True).start()
+
+
+@app.on_event("startup")
+def reprendre():
+    """Reprend les travaux interrompus par un redemarrage du serveur.
+
+    Les identifiants de job RunPod sont dans le JSON : on reprend le suivi,
+    on ne redepose rien -- redeposer facturerait deux fois.
+    """
+    for nom in os.listdir(TRAVAUX):
+        if nom.endswith(".json"):
+            t = lire(nom[:-5])
+            if t.get("statut") in ("attente", "voix", "video"):
+                lancer(t["id"])
+
+
+# ------------------------------------------------------------------ routes
+@app.get("/", response_class=HTMLResponse)
+def page(request: Request):
+    if not _authentifie(request):
+        return RedirectResponse("/connexion", status_code=303)
+    with open(os.path.join(ICI, "index.html"), encoding="utf-8") as f:
+        return f.read()
+
+
+@app.get("/connexion", response_class=HTMLResponse)
+def connexion_page():
+    return PAGE_CONNEXION.replace("__ERREUR__", "")
+
+
+@app.post("/connexion")
+def connexion(request: Request, mot_de_passe: str = Form("")):
+    if not MOT_DE_PASSE:
+        raise HTTPException(503, "SITE_PASSWORD non defini sur le serveur.")
+    if not secrets.compare_digest(mot_de_passe, MOT_DE_PASSE):
+        # Une seconde de penalite : rend l'essai systematique de mots de
+        # passe trop lent pour etre utile.
+        time.sleep(1)
+        return HTMLResponse(PAGE_CONNEXION.replace(
+            "__ERREUR__", '<p class="err">Mot de passe incorrect.</p>'),
+            status_code=401)
+    expiration = int(time.time()) + DUREE_SESSION
+    reponse = RedirectResponse("/", status_code=303)
+    # Derriere un hebergeur, le TLS s'arrete au proxy : c'est l'en-tete
+    # X-Forwarded-Proto qui dit si le visiteur est en https.
+    https = (request.headers.get("x-forwarded-proto", request.url.scheme)
+             == "https")
+    reponse.set_cookie(COOKIE, "%d.%s" % (expiration, _signer(expiration)),
+                       max_age=DUREE_SESSION, httponly=True, samesite="lax",
+                       secure=https)
+    return reponse
+
+
+@app.get("/deconnexion")
+def deconnexion():
+    reponse = RedirectResponse("/connexion", status_code=303)
+    reponse.delete_cookie(COOKIE)
+    return reponse
+
+
+@app.get("/api/options")
+def options(_=Depends(verifier)):
+    return {"styles": {k: v["nom"] for k, v in STYLES.items()},
+            "voix": VOIX, "langues": LANGUES,
+            "audio_max_s": AUDIO_MAX_S, "texte_max": TEXTE_MAX,
+            "voix_disponible": bool(CB_ID)}
+
+
+@app.post("/api/travaux")
+async def creer(
+    visage: UploadFile = File(...),
+    style: str = Form(...),
+    source: str = Form(...),
+    texte: str = Form(""),
+    voix: str = Form("inna"),
+    langue: str = Form("fr"),
+    audio: UploadFile = File(None),
+    titre: str = Form(""),
+    utilisateur=Depends(verifier),
+):
+    if not (CLE and IT_ID):
+        raise HTTPException(503, "RUNPOD_KEY ou INFINITETALK_ENDPOINT manquant.")
+    if style not in STYLES:
+        raise HTTPException(400, "Style inconnu.")
+    if source not in ("texte", "audio"):
+        raise HTTPException(400, "Source inconnue.")
+
+    image = await visage.read()
+    if not image or len(image) > 15 * 1024 * 1024:
+        raise HTTPException(400, "Image absente ou trop lourde (15 Mo max).")
+    ext = os.path.splitext(visage.filename or "")[1].lower().lstrip(".")
+    if ext not in ("png", "jpg", "jpeg", "webp"):
+        raise HTTPException(400, "Image attendue en PNG, JPG ou WEBP.")
+
+    tid = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
+    t = {"id": tid, "cree": time.time(), "maj": time.time(),
+         "titre": (titre or "").strip()[:80], "style": style,
+         "source": source, "statut": "attente", "image_ext": ext,
+         "par": utilisateur, "journal": []}
+
+    if source == "texte":
+        texte = (texte or "").strip()
+        if not texte:
+            raise HTTPException(400, "Texte vide.")
+        if len(texte) > TEXTE_MAX:
+            raise HTTPException(400, "Texte trop long (%d caracteres max)."
+                                % TEXTE_MAX)
+        if not CB_ID:
+            raise HTTPException(503, "Synthese vocale non configuree.")
+        if voix not in VOIX or langue not in LANGUES:
+            raise HTTPException(400, "Voix ou langue inconnue.")
+        t.update(texte=texte, voix=voix, langue=langue)
+    else:
+        if audio is None:
+            raise HTTPException(400, "Fichier audio manquant.")
+        brut = await audio.read()
+        if len(brut) > 30 * 1024 * 1024:
+            raise HTTPException(400, "Audio trop lourd (30 Mo max).")
+        try:
+            wav, duree = preparer_audio(brut)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        if duree > AUDIO_MAX_S + 0.5:
+            raise HTTPException(400, "Audio de %.0f s : la limite est %.0f s."
+                                % (duree, AUDIO_MAX_S))
+        with open(os.path.join(TRAVAUX, "%s.wav" % tid), "wb") as f:
+            f.write(wav)
+        t.update(audio_pret=True, duree_audio=round(duree, 2))
+
+    with open(os.path.join(TRAVAUX, "%s.img" % tid), "wb") as f:
+        f.write(image)
+    ecrire(t)
+    journal(tid, "Demande enregistree")
+    lancer(tid)
+    return {"id": tid}
+
+
+def _public(t):
+    """Ce que la page a le droit de voir d'un travail."""
+    garde = ("id", "cree", "maj", "titre", "style", "source", "statut",
+             "etape", "erreur", "duree_audio", "texte", "voix", "langue",
+             "gpu", "total_gpu_s", "s_par_seconde", "journal", "par")
+    sortie = {k: t[k] for k in garde if k in t}
+    sortie["style_nom"] = STYLES.get(t.get("style"), {}).get("nom")
+    if t.get("video"):
+        sortie["video"] = "/api/travaux/%s/video" % t["id"]
+    return sortie
+
+
+@app.get("/api/travaux")
+def liste(_=Depends(verifier)):
+    tous = []
+    for nom in os.listdir(TRAVAUX):
+        if nom.endswith(".json"):
+            try:
+                tous.append(_public(lire(nom[:-5])))
+            except (OSError, ValueError):
+                pass
+    return sorted(tous, key=lambda t: t["cree"], reverse=True)[:100]
+
+
+def _id_valide(tid):
+    # L'identifiant sert a composer un chemin : rien d'autre que ce que
+    # creer() fabrique ne doit passer.
+    if not tid or any(c not in "0123456789abcdef-" for c in tid):
+        raise HTTPException(404, "introuvable")
+    if not os.path.exists(_chemin(tid)):
+        raise HTTPException(404, "introuvable")
+    return tid
+
+
+@app.get("/api/travaux/{tid}")
+def detail(tid: str, _=Depends(verifier)):
+    return _public(lire(_id_valide(tid)))
+
+
+@app.get("/api/travaux/{tid}/video")
+def video(tid: str, _=Depends(verifier)):
+    chemin = os.path.join(VIDEOS, "%s.mp4" % _id_valide(tid))
+    if not os.path.exists(chemin):
+        raise HTTPException(404, "pas encore prete")
+    return FileResponse(chemin, media_type="video/mp4",
+                        filename="infinitetalk-%s.mp4" % tid)
+
+
+@app.get("/api/travaux/{tid}/visage")
+def visage_vignette(tid: str, _=Depends(verifier)):
+    t = lire(_id_valide(tid))
+    chemin = os.path.join(TRAVAUX, "%s.img" % tid)
+    types = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "webp": "image/webp"}
+    return FileResponse(chemin, media_type=types.get(t.get("image_ext"),
+                                                     "image/png"))
+
+
+@app.post("/api/travaux/{tid}/annuler")
+def annuler(tid: str, _=Depends(verifier)):
+    t = lire(_id_valide(tid))
+    for cle_job, endpoint, cle in (("job_video", IT_ID, CLE),
+                                   ("job_voix", CB_ID, CB_CLE)):
+        if t.get(cle_job) and t.get("statut") in ("voix", "video"):
+            try:
+                requests.post("%s/%s/cancel/%s" % (API, endpoint, t[cle_job]),
+                              headers=_entetes(cle), timeout=30)
+            except requests.RequestException:
+                pass
+    maj(tid, statut="erreur", erreur="Annule a la demande.")
+    return {"ok": True}
