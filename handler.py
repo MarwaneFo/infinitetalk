@@ -956,6 +956,42 @@ def _diagnostic(entree):
             "IT_LORA": os.environ.get("IT_LORA")}
 
 
+def _encoder_mp4(video, audio, sortie, crf=16, fps=25):
+    """Ecrit la video en H.264 de bonne qualite, avec la voix.
+
+    L'enregistreur amont passe par imageio a "quality=5" : une video de
+    3 s sortait a 0,2 Mo, et la perte se voyait au telechargement. Ici
+    les images partent brutes dans ffmpeg (libx264, CRF 16, quasi sans
+    perte visible), la voix en AAC 192 kb/s, et l'index en tete de
+    fichier (+faststart) pour une lecture immediate dans le navigateur.
+    """
+    import numpy as np
+    images = ((video.float().clamp(-1, 1) + 1) * 127.5).round()
+    images = images.to(torch_uint8()).permute(1, 2, 3, 0).cpu().numpy()
+    n, h, l, _ = images.shape
+    commande = [
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (l, h),
+        "-r", str(fps), "-i", "-",
+        "-i", audio,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "libx264", "-preset", "slow", "-crf", str(int(crf)),
+        "-pix_fmt", "yuv420p", "-profile:v", "high",
+        "-c:a", "aac", "-b:a", "192k",
+        "-t", "%.3f" % (n / float(fps)),
+        "-movflags", "+faststart", sortie]
+    proc = subprocess.run(commande, input=np.ascontiguousarray(images).tobytes(),
+                          capture_output=True)
+    if proc.returncode:
+        raise RuntimeError("ffmpeg : %s"
+                           % proc.stderr.decode(errors="replace")[-400:])
+
+
+def torch_uint8():
+    import torch
+    return torch.uint8
+
+
 def _duree(chemin):
     """Duree d'un media, via ffprobe s'il est present."""
     outil = shutil.which("ffprobe")
@@ -1118,11 +1154,11 @@ def handler(job):
             # --- ecriture du MP4 et retour
             _publier("encodage du MP4")
             depart = time.time()
-            from wan.utils.multitalk_utils import save_video_ffmpeg
-            base = os.path.join(travail, "sortie")
-            save_video_ffmpeg(video, base, [chemin_somme],
-                              high_quality_save=False)
-            sortie = base + ".mp4"
+            sortie = os.path.join(travail, "sortie.mp4")
+            # La voix d'origine, pas la copie 16 kHz faite pour wav2vec :
+            # celle-ci n'a que la qualite d'un telephone.
+            _encoder_mp4(video, audio, sortie,
+                         crf=_borne(entree.get("crf", 16), 0, 35, 16))
             if not os.path.exists(sortie):
                 return {"error": "La video n'a pas ete ecrite : %s" % sortie,
                         "etapes": etapes}

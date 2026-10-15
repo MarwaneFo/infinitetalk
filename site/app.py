@@ -304,10 +304,12 @@ def _ffmpeg():
 
 
 def preparer_audio(donnees):
-    """Tout audio -> WAV 16 kHz mono, complete par du silence si trop court.
+    """Tout audio -> WAV 48 kHz mono, complete par du silence si trop court.
 
-    InfiniteTalk travaille a 16 kHz et exige au moins un morceau entier
-    (3,24 s) : un audio plus court echoue sur une assertion, constate.
+    Le worker reechantillonne lui-meme a 16 kHz pour analyser la voix, mais
+    remet la voix recue dans la video : la reduire ici a 16 kHz donnait un
+    son de telephone au telechargement. InfiniteTalk exige au moins un
+    morceau entier (3,24 s) : un audio plus court echoue, constate.
     Renvoie (octets_wav, duree_s).
     """
     d = tempfile.mkdtemp(prefix="audio_")
@@ -317,7 +319,7 @@ def preparer_audio(donnees):
         with open(entree, "wb") as f:
             f.write(donnees)
         r = subprocess.run([_ffmpeg(), "-y", "-v", "error", "-i", entree,
-                            "-ac", "1", "-ar", "16000",
+                            "-ac", "1", "-ar", "48000",
                             "-af", "apad=whole_dur=%.2f" % AUDIO_MIN_S,
                             sortie], capture_output=True)
         if r.returncode or not os.path.exists(sortie):
