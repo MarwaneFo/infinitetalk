@@ -726,7 +726,8 @@ def _avatars():
 
 @app.get("/api/avatars")
 def liste_avatars(_=Depends(verifier)):
-    return [{"id": i, "nom": os.path.splitext(os.path.basename(c))[0].replace("_", " "),
+    # « leila.png » s'affiche « Leila » ; « jean_pierre » devient « Jean Pierre ».
+    return [{"id": i, "nom": os.path.splitext(os.path.basename(c))[0].replace("_", " ").title(),
              "image": "/api/avatars/%s" % i} for i, c in _avatars().items()]
 
 
