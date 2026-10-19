@@ -155,8 +155,11 @@
       </div>
 
       <div class="etape">
-        <div class="titre">4 &middot; La qualit&eacute;</div>
-        <select id="qualite"></select>
+        <div class="titre">4 &middot; Qualit&eacute; et l&egrave;vres</div>
+        <div class="rangee" style="margin-top:0">
+          <div><label class="petit" for="qualite">Qualit&eacute; de l'image</label><select id="qualite"></select></div>
+          <div><label class="petit" for="levres">Synchronisation des l&egrave;vres</label><select id="levres"></select></div>
+        </div>
       </div>
 
       <div class="etape">
@@ -281,6 +284,7 @@
     donnees.append("source", source);
     donnees.append("titre", $("titre").value);
     donnees.append("qualite", $("qualite").value);
+    donnees.append("levres", $("levres").value);
     if (source === "texte") {
       if (!$("texte").value.trim()) { return message("Écrivez le texte à prononcer.", true); }
       donnees.append("texte", $("texte").value);
@@ -326,7 +330,7 @@
     corps.appendChild(tete);
 
     var meta = document.createElement("div"); meta.className = "meta";
-    var bouts = [t.style_nom, t.qualite_nom, new Date(t.cree * 1000).toLocaleString("fr-FR")];
+    var bouts = [t.style_nom, t.qualite_nom, t.levres_nom, new Date(t.cree * 1000).toLocaleString("fr-FR")];
     if (t.segments > 1) { bouts.push(t.segments + " segments"); }
     if (t.duree_audio) { bouts.push(t.duree_audio.toFixed(1) + " s"); }
     if (t.total_gpu_s) { bouts.push(Math.round(t.total_gpu_s / 60) + " min de calcul"); }
@@ -399,6 +403,7 @@
     options = o;
     choix($("voix"), o.voix); choix($("langue"), o.langues);
     choix($("qualite"), o.qualites); $("qualite").onchange = estimer;
+    choix($("levres"), o.levres);
     dessinerStyles();
     $("texte").oninput();
     if (!o.voix_disponible) {

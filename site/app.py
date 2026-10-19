@@ -412,11 +412,18 @@ IPS = 25
 
 QUALITES = {
     "standard": {"nom": "Standard", "reglages": {}, "facteur": 1.0},
-    # 10 pas au lieu de 8 et lip-sync plus marque. Pas encore compare a
-    # l'oeil au mode standard : a valider.
-    "haute": {"nom": "Haute (10 pas, lip-sync 3)",
-              "reglages": {"sample_steps": 10, "audio_guide_scale": 3.0},
-              "facteur": 1.3},
+    # 10 pas au lieu de 8 : details plus fins. Pas encore compare a l'oeil.
+    "haute": {"nom": "Haute (10 pas)",
+              "reglages": {"sample_steps": 10}, "facteur": 1.3},
+}
+
+# Force du guidage audio : a quel point la bouche obeit a la voix. 2 est la
+# valeur de reference avec la LoRA FusionX ; au-dela, articulation plus
+# marquee, avec un risque de grimace. Sans cout de calcul.
+LEVRES = {
+    "normale": {"nom": "Normale", "audio_guide_scale": 2.0},
+    "marquee": {"nom": "Marquée", "audio_guide_scale": 2.5},
+    "forte": {"nom": "Très marquée", "audio_guide_scale": 3.0},
 }
 
 
@@ -497,6 +504,8 @@ def _deposer_segment(tid, t, seg, style, image):
               "max_frame_num": max(1, int(round(duree * IPS)))}
     qualite = QUALITES.get(t.get("qualite"), QUALITES["standard"])
     entree.update(qualite["reglages"])
+    entree["audio_guide_scale"] = LEVRES.get(
+        t.get("levres"), LEVRES["normale"])["audio_guide_scale"]
     delai = int(delai_job_s(duree) * qualite["facteur"])
     return deposer(IT_ID, CLE, {"input": entree,
                                 "policy": {"executionTimeout": delai * 1000}},
@@ -696,6 +705,7 @@ def options(_=Depends(verifier)):
             "voix": VOIX, "langues": LANGUES,
             "audio_max_s": AUDIO_MAX_S, "texte_max": TEXTE_MAX,
             "qualites": {k: v["nom"] for k, v in QUALITES.items()},
+            "levres": {k: v["nom"] for k, v in LEVRES.items()},
             "segment_s": SEG_CIBLE_S,
             "voix_disponible": bool(CB_ID)}
 
@@ -711,6 +721,7 @@ async def creer(
     audio: UploadFile = File(None),
     titre: str = Form(""),
     qualite: str = Form("standard"),
+    levres: str = Form("normale"),
     utilisateur=Depends(verifier),
 ):
     if not (CLE and IT_ID):
@@ -721,6 +732,8 @@ async def creer(
         raise HTTPException(400, "Source inconnue.")
     if qualite not in QUALITES:
         raise HTTPException(400, "Qualite inconnue.")
+    if levres not in LEVRES:
+        raise HTTPException(400, "Reglage des levres inconnu.")
 
     image = await visage.read()
     if not image or len(image) > 15 * 1024 * 1024:
@@ -733,7 +746,7 @@ async def creer(
     t = {"id": tid, "cree": time.time(), "maj": time.time(),
          "titre": (titre or "").strip()[:80], "style": style,
          "source": source, "statut": "attente", "image_ext": ext,
-         "qualite": qualite,
+         "qualite": qualite, "levres": levres,
          "par": utilisateur, "journal": []}
 
     if source == "texte":
@@ -781,6 +794,7 @@ def _public(t):
     sortie = {k: t[k] for k in garde if k in t}
     sortie["style_nom"] = STYLES.get(t.get("style"), {}).get("nom")
     sortie["qualite_nom"] = QUALITES.get(t.get("qualite"), QUALITES["standard"])["nom"]
+    sortie["levres_nom"] = "lèvres " + LEVRES.get(t.get("levres"), LEVRES["normale"])["nom"].lower()
     if t.get("segments"):
         sortie["segments"] = len(t["segments"])
     if t.get("video"):
