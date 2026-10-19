@@ -549,6 +549,8 @@ def _video_en_segments(tid, style):
 
     dernier = None
     while True:
+        if lire(tid).get("annule"):
+            return
         for seg in segs:
             if seg["statut"] == "termine":
                 continue
@@ -651,7 +653,7 @@ def reprendre():
     for nom in os.listdir(TRAVAUX):
         if nom.endswith(".json"):
             t = lire(nom[:-5])
-            if t.get("statut") in ("attente", "voix", "video"):
+            if t.get("statut") in ("attente", "voix", "video") and not t.get("annule"):
                 lancer(t["id"])
 
 
@@ -851,13 +853,19 @@ def visage_vignette(tid: str, _=Depends(verifier)):
 @app.post("/api/travaux/{tid}/annuler")
 def annuler(tid: str, _=Depends(verifier)):
     t = lire(_id_valide(tid))
-    for cle_job, endpoint, cle in (("job_video", IT_ID, CLE),
-                                   ("job_voix", CB_ID, CB_CLE)):
-        if t.get(cle_job) and t.get("statut") in ("voix", "video"):
+    # Les jobs d'une video decoupee sont dans ses segments : sans eux,
+    # l'annulation laissait tourner (et facturer) le calcul sur RunPod.
+    jobs = [(t.get("job_voix"), CB_ID, CB_CLE), (t.get("job_video"), IT_ID, CLE)]
+    jobs += [(sg.get("job"), IT_ID, CLE) for sg in t.get("segments") or []
+             if sg.get("statut") != "termine"]
+    if t.get("statut") in ("attente", "voix", "video"):
+        for job, endpoint, cle in jobs:
+            if not job:
+                continue
             try:
-                requests.post("%s/%s/cancel/%s" % (API, endpoint, t[cle_job]),
+                requests.post("%s/%s/cancel/%s" % (API, endpoint, job),
                               headers=_entetes(cle), timeout=30)
             except requests.RequestException:
                 pass
-    maj(tid, statut="erreur", erreur="Annule a la demande.")
+    maj(tid, statut="erreur", erreur="Annule a la demande.", annule=True)
     return {"ok": True}
