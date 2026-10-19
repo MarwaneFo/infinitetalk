@@ -95,6 +95,22 @@ STYLES = {
                   "attentive expression, soft classroom lighting.",
         "expressivite": 0.50,
     },
+    "expert": {
+        "nom": "Expert / confiant",
+        "invite": "A confident expert speaks directly to the camera with "
+                  "authority and clarity, steady eye contact, composed posture, "
+                  "measured and deliberate head movements, subtle assured "
+                  "expression, clean professional studio lighting.",
+        "expressivite": 0.45,
+    },
+    "commercial": {
+        "nom": "Commercial / persuasif",
+        "invite": "A persuasive presenter speaks warmly and convincingly to "
+                  "the camera, engaging confident smile, lively but controlled "
+                  "expressions, inviting nods, open friendly attitude, bright "
+                  "polished lighting.",
+        "expressivite": 0.70,
+    },
 }
 
 VOIX = {"inna": "Inna (feminine)", "mehdi": "Mehdi (masculine)",
