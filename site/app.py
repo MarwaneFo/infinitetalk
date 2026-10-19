@@ -701,6 +701,44 @@ def deconnexion():
     return reponse
 
 
+# ------------------------------------------------------------------ avatars
+# Les visages proposes par defaut : un fichier image par avatar dans
+# site/avatars (ou AVATARS_DIR). Le nom du fichier sert de nom affiche :
+# « Inna.png » donne « Inna ». Ajouter ou retirer un avatar = deposer ou
+# supprimer un fichier, sans toucher au code.
+AVATARS = os.environ.get("AVATARS_DIR", os.path.join(ICI, "avatars"))
+TYPES_IMAGE = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+               "webp": "image/webp"}
+
+
+def _avatars():
+    """{identifiant: chemin} des images de la galerie, triees par nom."""
+    if not os.path.isdir(AVATARS):
+        return {}
+    trouves = {}
+    for nom in sorted(os.listdir(AVATARS), key=str.lower):
+        base, ext = os.path.splitext(nom)
+        if ext.lower().lstrip(".") in TYPES_IMAGE:
+            ident = "".join(c if c.isalnum() else "-" for c in base.lower()).strip("-")
+            trouves[ident or "avatar"] = os.path.join(AVATARS, nom)
+    return trouves
+
+
+@app.get("/api/avatars")
+def liste_avatars(_=Depends(verifier)):
+    return [{"id": i, "nom": os.path.splitext(os.path.basename(c))[0].replace("_", " "),
+             "image": "/api/avatars/%s" % i} for i, c in _avatars().items()]
+
+
+@app.get("/api/avatars/{ident}")
+def image_avatar(ident: str, _=Depends(verifier)):
+    chemin = _avatars().get(ident)
+    if not chemin:
+        raise HTTPException(404, "introuvable")
+    ext = os.path.splitext(chemin)[1].lower().lstrip(".")
+    return FileResponse(chemin, media_type=TYPES_IMAGE[ext])
+
+
 @app.get("/api/options")
 def options(_=Depends(verifier)):
     return {"styles": {k: v["nom"] for k, v in STYLES.items()},
@@ -714,7 +752,8 @@ def options(_=Depends(verifier)):
 
 @app.post("/api/travaux")
 async def creer(
-    visage: UploadFile = File(...),
+    visage: UploadFile = File(None),
+    avatar: str = Form(""),
     style: str = Form(...),
     source: str = Form(...),
     texte: str = Form(""),
@@ -737,10 +776,22 @@ async def creer(
     if levres not in LEVRES:
         raise HTTPException(400, "Reglage des levres inconnu.")
 
-    image = await visage.read()
+    if avatar:
+        # Un visage de la galerie : on lit le fichier cote serveur, jamais
+        # un chemin envoye par la page.
+        chemin_avatar = _avatars().get(avatar)
+        if not chemin_avatar:
+            raise HTTPException(400, "Avatar inconnu.")
+        with open(chemin_avatar, "rb") as f:
+            image = f.read()
+        ext = os.path.splitext(chemin_avatar)[1].lower().lstrip(".")
+    elif visage is not None:
+        image = await visage.read()
+        ext = os.path.splitext(visage.filename or "")[1].lower().lstrip(".")
+    else:
+        raise HTTPException(400, "Choisir un avatar ou importer une photo.")
     if not image or len(image) > 15 * 1024 * 1024:
         raise HTTPException(400, "Image absente ou trop lourde (15 Mo max).")
-    ext = os.path.splitext(visage.filename or "")[1].lower().lstrip(".")
     if ext not in ("png", "jpg", "jpeg", "webp"):
         raise HTTPException(400, "Image attendue en PNG, JPG ou WEBP.")
 
@@ -748,7 +799,7 @@ async def creer(
     t = {"id": tid, "cree": time.time(), "maj": time.time(),
          "titre": (titre or "").strip()[:80], "style": style,
          "source": source, "statut": "attente", "image_ext": ext,
-         "qualite": qualite, "levres": levres,
+         "qualite": qualite, "levres": levres, "avatar": avatar or None,
          "par": utilisateur, "journal": []}
 
     if source == "texte":
