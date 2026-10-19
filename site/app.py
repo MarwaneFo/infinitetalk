@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import shutil
@@ -383,42 +384,248 @@ def executer(tid):
         else:
             raise RuntimeError("audio manquant")
 
-        # --- 2. la video
+        # --- 2. la video, decoupee en segments traites en parallele
         t = lire(tid)
-        job = t.get("job_video")
-        if not job:
-            with open(os.path.join(TRAVAUX, "%s.img" % tid), "rb") as f:
-                image = base64.b64encode(f.read()).decode()
-            entree = {"audio_base64": base64.b64encode(wav).decode(),
-                      "image_base64": image,
-                      "image_ext": t.get("image_ext", "png"),
-                      "prompt": style["invite"],
-                      "size": "infinitetalk-480",
-                      "mode": ("clip" if t["duree_audio"] <= CLIP_MAX_S
-                               else "streaming"),
-                      "max_frame_num": int(t["duree_audio"] * 25) + 10}
-            charge = {"input": entree, "policy": {
-                "executionTimeout": delai_job_s(t["duree_audio"]) * 1000}}
-            job = deposer(IT_ID, CLE, charge, "video")
-            maj(tid, job_video=job, statut="video")
-            journal(tid, "Animation du visage (InfiniteTalk), %.1f s d'audio"
-                    % t["duree_audio"])
-        sortie = attendre(tid, IT_ID, CLE, job, "video")
-
-        # --- 3. le fichier
-        chemin = os.path.join(VIDEOS, "%s.mp4" % tid)
-        with open(chemin, "wb") as f:
-            f.write(base64.b64decode(sortie["video_base64"]))
-        maj(tid, statut="termine", video=True,
-            gpu=sortie.get("gpu"), total_gpu_s=sortie.get("total_s"),
-            s_par_seconde=sortie.get("s_par_seconde"))
-        journal(tid, "Video prete")
+        if t.get("job_video"):
+            # Travail cree avant le decoupage : on reprend son suivi tel quel.
+            _ancien_suivi(tid)
+            return
+        _video_en_segments(tid, style)
     except Exception as exc:
         try:
             maj(tid, statut="erreur", erreur=str(exc)[:600])
             journal(tid, "Erreur : %s" % str(exc)[:300])
         except Exception:
             pass
+
+
+# ------------------------------------------------------------------ segments
+# Une video longue est coupee aux silences en segments d'environ 30 s, deposes
+# tous ensemble : RunPod les repartit sur autant de workers que « Max workers »
+# l'autorise. Chaque segment repart de la photo, ce qui evite aussi la derive
+# de couleur des videos longues. La voix entiere est remise par-dessus a la
+# fin : aucune coupure audible aux raccords.
+SEG_CIBLE_S = float(os.environ.get("SEG_CIBLE_S", "30"))
+SEG_MAX_S = float(os.environ.get("SEG_MAX_S", "36"))
+SEG_MIN_S = 6.0
+IPS = 25
+
+QUALITES = {
+    "standard": {"nom": "Standard", "reglages": {}, "facteur": 1.0},
+    # 10 pas au lieu de 8 et lip-sync plus marque. Pas encore compare a
+    # l'oeil au mode standard : a valider.
+    "haute": {"nom": "Haute (10 pas, lip-sync 3)",
+              "reglages": {"sample_steps": 10, "audio_guide_scale": 3.0},
+              "facteur": 1.3},
+}
+
+
+def _silences(chemin):
+    """Milieux des silences de plus de 0,3 s, en secondes."""
+    r = subprocess.run([_ffmpeg(), "-v", "info", "-i", chemin, "-af",
+                        "silencedetect=noise=-35dB:d=0.3", "-f", "null", "-"],
+                       capture_output=True, text=True, errors="replace")
+    milieux, debut = [], None
+    for ligne in r.stderr.splitlines():
+        if "silence_start:" in ligne:
+            debut = float(ligne.split("silence_start:")[1].split()[0])
+        elif "silence_end:" in ligne and debut is not None:
+            fin = float(ligne.split("silence_end:")[1].split()[0])
+            milieux.append((debut + fin) / 2)
+            debut = None
+    return milieux
+
+
+def decouper(chemin, duree):
+    """Bornes des segments, en secondes, alignees sur les images.
+
+    Le nombre de segments est le plus petit qui respecte SEG_MAX_S, et les
+    coupes visent des segments de meme duree : avec 2 workers, deux segments
+    de 32 s finissent ensemble, la ou 24 + 22 + 17 s en laisseraient un
+    attendre seul. Chaque coupe tombe au milieu du silence le plus proche
+    (6 s de tolerance), a defaut pile sur la cible. Les bornes sont sur une
+    image entiere (1/25 s) : sinon chaque raccord decalerait le son d'une
+    fraction d'image, et sur 15 segments le decalage se verrait.
+    """
+    if duree <= SEG_MAX_S:
+        return [(0.0, duree)]
+    n = int(math.ceil(duree / SEG_MAX_S))
+    silences = _silences(chemin)
+    bornes = [0.0]
+    for k in range(1, n):
+        cible = duree * k / n
+        proches = [m for m in silences
+                   if abs(m - cible) <= 6 and m - bornes[-1] >= SEG_MIN_S
+                   and duree - m >= SEG_MIN_S]
+        coupe = min(proches, key=lambda m: abs(m - cible)) if proches else cible
+        bornes.append(round(coupe * IPS) / IPS)
+    bornes.append(duree)
+    return list(zip(bornes[:-1], bornes[1:]))
+
+
+def extraire(chemin, debut, fin):
+    """Le morceau [debut, fin] du WAV, en octets WAV 48 kHz mono."""
+    d = tempfile.mkdtemp(prefix="seg_")
+    try:
+        sortie = os.path.join(d, "s.wav")
+        r = subprocess.run([_ffmpeg(), "-y", "-v", "error", "-i", chemin,
+                            "-ss", "%.3f" % debut, "-t", "%.3f" % (fin - debut),
+                            "-ac", "1", "-ar", "48000",
+                            "-af", "apad=whole_dur=%.2f" % AUDIO_MIN_S, sortie],
+                           capture_output=True)
+        if r.returncode:
+            raise RuntimeError("decoupage audio : %s"
+                               % r.stderr.decode(errors="replace")[:200])
+        with open(sortie, "rb") as f:
+            return f.read()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _deposer_segment(tid, t, seg, style, image):
+    wav = os.path.join(TRAVAUX, "%s.wav" % tid)
+    duree = seg["fin"] - seg["debut"]
+    entree = {"audio_base64": base64.b64encode(
+                  extraire(wav, seg["debut"], seg["fin"])).decode(),
+              "image_base64": image,
+              "image_ext": t.get("image_ext", "png"),
+              "prompt": style["invite"],
+              "size": "infinitetalk-480",
+              "mode": "clip" if duree <= CLIP_MAX_S else "streaming",
+              # Exactement le nombre d'images du segment : les raccords
+              # restent alignes sur la voix.
+              "max_frame_num": max(1, int(round(duree * IPS)))}
+    qualite = QUALITES.get(t.get("qualite"), QUALITES["standard"])
+    entree.update(qualite["reglages"])
+    delai = int(delai_job_s(duree) * qualite["facteur"])
+    return deposer(IT_ID, CLE, {"input": entree,
+                                "policy": {"executionTimeout": delai * 1000}},
+                   "video")
+
+
+def _resume(segments):
+    """Une ligne d'avancement lisible, segment par segment."""
+    n = len(segments)
+    if n == 1:
+        return segments[0].get("etape") or "en file d'attente"
+    faits = sum(1 for s in segments if s["statut"] == "termine")
+    actifs = ["segment %d/%d : %s" % (s["i"] + 1, n, s.get("etape") or "en file")
+              for s in segments if s["statut"] != "termine"]
+    return "%d/%d segments termines%s" % (
+        faits, n, (" · " + " · ".join(actifs[:2])) if actifs else "")
+
+
+def _video_en_segments(tid, style):
+    t = lire(tid)
+    if not t.get("segments"):
+        wav = os.path.join(TRAVAUX, "%s.wav" % tid)
+        bornes = decouper(wav, t["duree_audio"])
+        segs = [{"i": i, "debut": a, "fin": b, "statut": "attente",
+                 "job": None, "essais": 0} for i, (a, b) in enumerate(bornes)]
+        t = maj(tid, segments=segs, statut="video")
+        journal(tid, "Animation du visage (InfiniteTalk) : %.1f s d'audio, "
+                "%d segment(s)" % (t["duree_audio"], len(segs)))
+
+    with open(os.path.join(TRAVAUX, "%s.img" % tid), "rb") as f:
+        image = base64.b64encode(f.read()).decode()
+
+    # Deposer tout ce qui n'a pas encore de job. Apres un redemarrage, les
+    # segments deja deposes gardent leur job : rien n'est facture deux fois.
+    segs = t["segments"]
+    for seg in segs:
+        if not seg["job"] and seg["statut"] != "termine":
+            seg["job"] = _deposer_segment(tid, t, seg, style, image)
+            seg["statut"] = "video"
+            maj(tid, segments=segs)
+
+    dernier = None
+    while True:
+        for seg in segs:
+            if seg["statut"] == "termine":
+                continue
+            s = etat(IT_ID, CLE, seg["job"])
+            statut = s.get("status")
+            sortie = s.get("output")
+            if statut == "COMPLETED":
+                if isinstance(sortie, dict) and sortie.get("error"):
+                    statut, s = "FAILED", {"error": sortie["error"]}
+                else:
+                    chemin = os.path.join(TRAVAUX, "%s_seg%02d.mp4" % (tid, seg["i"]))
+                    with open(chemin, "wb") as f:
+                        f.write(base64.b64decode(sortie["video_base64"]))
+                    seg.update(statut="termine", etape="termine",
+                               gpu_s=sortie.get("total_s"))
+                    continue
+            if statut in ("FAILED", "CANCELLED", "TIMED_OUT"):
+                detail = s.get("error") or ""
+                if seg["essais"] < 1 and statut != "CANCELLED":
+                    # Une seconde chance, pour ce segment seulement.
+                    seg["essais"] += 1
+                    journal(tid, "segment %d : %s, nouvel essai" % (seg["i"] + 1, statut))
+                    seg["job"] = _deposer_segment(tid, t, seg, style, image)
+                    seg["etape"] = "nouvel essai"
+                    continue
+                raise RuntimeError("video, segment %d/%d : %s (%s)"
+                                   % (seg["i"] + 1, len(segs), statut, str(detail)[:300]))
+            if statut == "IN_PROGRESS" and isinstance(sortie, str):
+                seg["etape"] = sortie
+            elif statut == "IN_QUEUE":
+                seg["etape"] = "en file d'attente (demarrage d'un GPU)"
+        maj(tid, segments=segs)
+        ligne = _resume(segs)
+        if ligne != dernier:
+            journal(tid, "video : " + ligne)
+            dernier = ligne
+        if all(sg["statut"] == "termine" for sg in segs):
+            break
+        time.sleep(10)
+
+    journal(tid, "Assemblage de la video")
+    assembler(tid, segs, os.path.join(VIDEOS, "%s.mp4" % tid))
+    gpu = sum(sg.get("gpu_s") or 0 for sg in segs)
+    maj(tid, statut="termine", video=True, total_gpu_s=round(gpu, 1),
+        s_par_seconde=round(gpu / max(t["duree_audio"], 0.1), 2))
+    for sg in segs:
+        try:
+            os.remove(os.path.join(TRAVAUX, "%s_seg%02d.mp4" % (tid, sg["i"])))
+        except OSError:
+            pass
+    journal(tid, "Video prete")
+
+
+def assembler(tid, segs, sortie):
+    """Recolle les segments dans l'ordre et remet la voix entiere par-dessus."""
+    morceaux = [os.path.join(TRAVAUX, "%s_seg%02d.mp4" % (tid, sg["i"]))
+                for sg in sorted(segs, key=lambda s: s["i"])]
+    voix = os.path.join(TRAVAUX, "%s.wav" % tid)
+    d = tempfile.mkdtemp(prefix="assemblage_")
+    try:
+        liste = os.path.join(d, "liste.txt")
+        with open(liste, "w", encoding="utf-8") as f:
+            for m in morceaux:
+                f.write("file '%s'\n" % m.replace("\\", "/").replace("'", "'\\''"))
+        r = subprocess.run([_ffmpeg(), "-y", "-v", "error",
+                            "-f", "concat", "-safe", "0", "-i", liste,
+                            "-i", voix, "-map", "0:v", "-map", "1:a",
+                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                            "-movflags", "+faststart", sortie],
+                           capture_output=True)
+        if r.returncode:
+            raise RuntimeError("assemblage : %s"
+                               % r.stderr.decode(errors="replace")[-300:])
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _ancien_suivi(tid):
+    """Suivi d'un travail depose en un seul job, avant le decoupage."""
+    t = lire(tid)
+    sortie = attendre(tid, IT_ID, CLE, t["job_video"], "video")
+    with open(os.path.join(VIDEOS, "%s.mp4" % tid), "wb") as f:
+        f.write(base64.b64decode(sortie["video_base64"]))
+    maj(tid, statut="termine", video=True, total_gpu_s=sortie.get("total_s"),
+        s_par_seconde=sortie.get("s_par_seconde"))
+    journal(tid, "Video prete")
 
 
 def lancer(tid):
@@ -488,6 +695,8 @@ def options(_=Depends(verifier)):
     return {"styles": {k: v["nom"] for k, v in STYLES.items()},
             "voix": VOIX, "langues": LANGUES,
             "audio_max_s": AUDIO_MAX_S, "texte_max": TEXTE_MAX,
+            "qualites": {k: v["nom"] for k, v in QUALITES.items()},
+            "segment_s": SEG_CIBLE_S,
             "voix_disponible": bool(CB_ID)}
 
 
@@ -501,6 +710,7 @@ async def creer(
     langue: str = Form("fr"),
     audio: UploadFile = File(None),
     titre: str = Form(""),
+    qualite: str = Form("standard"),
     utilisateur=Depends(verifier),
 ):
     if not (CLE and IT_ID):
@@ -509,6 +719,8 @@ async def creer(
         raise HTTPException(400, "Style inconnu.")
     if source not in ("texte", "audio"):
         raise HTTPException(400, "Source inconnue.")
+    if qualite not in QUALITES:
+        raise HTTPException(400, "Qualite inconnue.")
 
     image = await visage.read()
     if not image or len(image) > 15 * 1024 * 1024:
@@ -521,6 +733,7 @@ async def creer(
     t = {"id": tid, "cree": time.time(), "maj": time.time(),
          "titre": (titre or "").strip()[:80], "style": style,
          "source": source, "statut": "attente", "image_ext": ext,
+         "qualite": qualite,
          "par": utilisateur, "journal": []}
 
     if source == "texte":
@@ -567,6 +780,9 @@ def _public(t):
              "gpu", "total_gpu_s", "s_par_seconde", "journal", "par")
     sortie = {k: t[k] for k in garde if k in t}
     sortie["style_nom"] = STYLES.get(t.get("style"), {}).get("nom")
+    sortie["qualite_nom"] = QUALITES.get(t.get("qualite"), QUALITES["standard"])["nom"]
+    if t.get("segments"):
+        sortie["segments"] = len(t["segments"])
     if t.get("video"):
         sortie["video"] = "/api/travaux/%s/video" % t["id"]
     return sortie

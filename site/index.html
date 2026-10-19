@@ -155,7 +155,12 @@
       </div>
 
       <div class="etape">
-        <div class="titre">4 &middot; Nom de la vid&eacute;o <span style="text-transform:none">(facultatif)</span></div>
+        <div class="titre">4 &middot; La qualit&eacute;</div>
+        <select id="qualite"></select>
+      </div>
+
+      <div class="etape">
+        <div class="titre">5 &middot; Nom de la vid&eacute;o <span style="text-transform:none">(facultatif)</span></div>
         <input type="text" id="titre" maxlength="80" placeholder="Module 2 &mdash; introduction">
       </div>
 
@@ -206,13 +211,22 @@
   /* Mesure sur L40S : ~2 min de GPU par seconde de video, plus ~5 min quand
      un GPU doit demarrer. La lecture d'un texte francais tourne autour de
      15 caracteres par seconde. */
+  /* Les videos de plus de ~36 s sont coupees en segments de ~30 s, calcules
+     en parallele : l'attente depend alors du nombre de workers RunPod. */
   function estimer() {
     var secondes = source === "texte" ? $("texte").value.trim().length / 15 : dureeAudio;
     if (!secondes) { $("estimation").textContent = "Durée estimée : —"; return; }
     secondes = Math.max(secondes, 3.4);
-    var minutes = Math.round(secondes * 2 + 5);
-    $("estimation").textContent = "Vidéo d'environ " + Math.round(secondes) +
-      " s — calcul estimé : " + minutes + " min. Vous pouvez fermer la page, " +
+    var facteur = $("qualite").value === "haute" ? 1.3 : 1;
+    var calcul = secondes * 2 * facteur;
+    var segments = secondes > 36 ? Math.ceil(secondes / options.segment_s) : 1;
+    var texte = "Vidéo d'environ " + Math.round(secondes) + " s — calcul estimé : " +
+      Math.round(calcul + 5) + " min";
+    if (segments > 1) {
+      texte += " avec 1 worker, ~" + Math.round(calcul / Math.min(2, segments) + 5) +
+        " min avec 2 workers (" + segments + " segments)";
+    }
+    $("estimation").textContent = texte + ". Vous pouvez fermer la page, " +
       "la vidéo apparaîtra dans « Mes vidéos ».";
   }
 
@@ -266,6 +280,7 @@
     donnees.append("style", style);
     donnees.append("source", source);
     donnees.append("titre", $("titre").value);
+    donnees.append("qualite", $("qualite").value);
     if (source === "texte") {
       if (!$("texte").value.trim()) { return message("Écrivez le texte à prononcer.", true); }
       donnees.append("texte", $("texte").value);
@@ -311,7 +326,8 @@
     corps.appendChild(tete);
 
     var meta = document.createElement("div"); meta.className = "meta";
-    var bouts = [t.style_nom, new Date(t.cree * 1000).toLocaleString("fr-FR")];
+    var bouts = [t.style_nom, t.qualite_nom, new Date(t.cree * 1000).toLocaleString("fr-FR")];
+    if (t.segments > 1) { bouts.push(t.segments + " segments"); }
     if (t.duree_audio) { bouts.push(t.duree_audio.toFixed(1) + " s"); }
     if (t.total_gpu_s) { bouts.push(Math.round(t.total_gpu_s / 60) + " min de calcul"); }
     meta.textContent = bouts.filter(Boolean).join(" · ");
@@ -382,6 +398,7 @@
   fetch("/api/options").then(function (r) { return r.json(); }).then(function (o) {
     options = o;
     choix($("voix"), o.voix); choix($("langue"), o.langues);
+    choix($("qualite"), o.qualites); $("qualite").onchange = estimer;
     dessinerStyles();
     $("texte").oninput();
     if (!o.voix_disponible) {
