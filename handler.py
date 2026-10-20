@@ -273,6 +273,7 @@ def _charger():
 
     _clip_hors_gpu(pipeline)
     _delester(pipeline)
+    _decodage_sur(pipeline)
 
     # wav2vec reste sur le CPU : c'est ce que fait le script amont, et ces
     # 380 Mo n'ont rien a gagner a occuper de la VRAM.
@@ -407,8 +408,45 @@ def _delester(pipeline):
     pipeline.vram_management = True
     pipeline.enable_vram_management(num_persistent_param_in_dit=persistants)
     torch.cuda.empty_cache()
+    _ETAT["delestage_go"] = valeur
     print("[init] delestage DiT : %.1f G parametres sur %.1f restent en VRAM"
           % (persistants / 1e9, total / 1e9), flush=True)
+
+
+def _decodage_sur(pipeline):
+    """Second filet sous le delestage : un decodage VAE qui manque de
+    memoire est rejoue apres avoir vide la carte du DiT.
+
+    Le pic de memoire d'un morceau arrive au decodage, quand le DiT ne sert
+    plus. Constate le 20/10 sur une photo presque carree : 42,8 Go alloues,
+    0,9 Go manquants, a des morceaux differents d'un essai a l'autre. Sans
+    filet, tout le travail deja fait etait perdu.
+
+    Le DiT est renvoye en RAM (load_models_to_device([]) du code amont) ;
+    le morceau suivant le recharge de lui-meme avant ses pas.
+    """
+    import torch
+    vae = pipeline.vae
+    decoder_amont = vae.decode
+
+    def decoder(*args, **kwargs):
+        try:
+            return decoder_amont(*args, **kwargs)
+        except torch.OutOfMemoryError:
+            print("[memoire] decodage a court : DiT renvoye en RAM, nouvel "
+                  "essai", flush=True)
+            if pipeline.vram_management:
+                pipeline.load_models_to_device([])
+            else:
+                pipeline.model.cpu()
+            torch.cuda.empty_cache()
+            try:
+                return decoder_amont(*args, **kwargs)
+            finally:
+                if not pipeline.vram_management:
+                    pipeline.model.to(pipeline.device)
+
+    vae.decode = decoder
 
 
 def _coeurs_alloues():
@@ -954,6 +992,10 @@ def _diagnostic(entree):
             "IT_VARIANTE": os.environ.get("IT_VARIANTE", "single"),
             "IT_LOW_VRAM": os.environ.get("IT_LOW_VRAM"),
             "IT_DELESTAGE_GO": os.environ.get("IT_DELESTAGE_GO"),
+            # Ce que le worker applique vraiment, variable ou defaut de
+            # l'image : permet de verifier qu'une mise a jour est en place.
+            "delestage_defaut_go": 16,
+            "version": "decodage-sur",
             "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
             "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
             "IT_LORA": os.environ.get("IT_LORA")}
