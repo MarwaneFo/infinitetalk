@@ -56,6 +56,20 @@
   .avatar.on { border-color: var(--accent); background: var(--soft); }
   .avatar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .aide { font-size: 12.5px; color: var(--dim); margin: 8px 0 0; }
+  .parties { display: grid; gap: 10px; }
+  .partie { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg);
+            display: grid; gap: 8px; }
+  .partie-tete { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .partie-tete b { font-size: 13px; min-width: 64px; }
+  .partie-tete select { flex: 1; min-width: 140px; width: auto; }
+  .partie-tete input { width: 80px; }
+  .partie textarea { min-height: 70px; background: var(--panel); }
+  .retirer { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; font-size: 13px; }
+  .retirer:hover { color: var(--err); }
+  .ajouter { background: none; border: 1.5px dashed var(--line); border-radius: 9px; padding: 8px;
+             width: 100%; margin-top: 10px; color: var(--accent); font: inherit; cursor: pointer; }
+  .ajouter:hover { border-color: var(--accent); }
+  .invalide { border-color: var(--err) !important; }
   .bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
              background: var(--bg); border: 1px solid var(--line);
              border-radius: 9px; padding: 4px; margin-bottom: 10px; }
@@ -156,7 +170,14 @@
 
       <div class="etape">
         <div class="titre">3 &middot; Le style</div>
+        <div class="bascule" id="mode-style">
+          <button type="button" class="on" data-mode="un">Un seul style</button>
+          <button type="button" data-mode="plusieurs">Plusieurs styles</button>
+        </div>
         <div class="styles" id="styles"></div>
+        <div class="parties" id="parties" hidden></div>
+        <button type="button" class="ajouter" id="ajout-partie" hidden>+ Ajouter une partie</button>
+        <p class="aide" id="aide-parties" hidden></p>
       </div>
 
       <div class="etape">
@@ -224,7 +245,10 @@
   /* Les videos de plus de ~36 s sont coupees en segments de ~30 s, calcules
      en parallele : l'attente depend alors du nombre de workers RunPod. */
   function estimer() {
-    var secondes = source === "texte" ? $("texte").value.trim().length / 15 : dureeAudio;
+    var longueur = (modeStyle === "plusieurs" && source === "texte")
+      ? partiesTexte.reduce(function (n, p) { return n + p.texte.trim().length; }, 0)
+      : $("texte").value.trim().length;
+    var secondes = source === "texte" ? longueur / 15 : dureeAudio;
     if (!secondes) { $("estimation").textContent = "Durée estimée : —"; return; }
     secondes = Math.max(secondes, 3.4);
     var facteur = $("qualite").value === "haute" ? 1.3 : 1;
@@ -245,17 +269,124 @@
     estimer();
   };
 
-  document.querySelectorAll(".bascule button").forEach(function (b) {
+  document.querySelectorAll(".bascule button[data-source]").forEach(function (b) {
     b.onclick = function () {
       source = b.dataset.source;
-      document.querySelectorAll(".bascule button").forEach(function (x) {
+      document.querySelectorAll(".bascule button[data-source]").forEach(function (x) {
         x.classList.toggle("on", x === b);
       });
       $("bloc-texte").hidden = source !== "texte";
       $("bloc-audio").hidden = source !== "audio";
-      estimer();
+      dessinerParties();
     };
   });
+
+  /* Plusieurs styles. En texte, chaque partie a son texte et son style ; en
+     audio, chaque partie a son style et le moment ou elle commence. */
+  var modeStyle = "un";
+  var partiesTexte = [{ style: "serieux", texte: "" }, { style: "souriant", texte: "" }];
+  var partiesAudio = [{ style: "serieux", debut: 0 }, { style: "souriant", debut: 10 }];
+
+  function lireTemps(txt) {
+    var m = String(txt).trim().match(/^(?:(\d+):)?(\d+(?:[.,]\d+)?)$/);
+    if (!m) { return NaN; }
+    return (m[1] ? parseInt(m[1], 10) * 60 : 0) + parseFloat(m[2].replace(",", "."));
+  }
+  function ecrireTemps(sec) {
+    var m = Math.floor(sec / 60), r = Math.round(sec - m * 60);
+    return m + ":" + (r < 10 ? "0" : "") + r;
+  }
+  function menuStyle(valeur, quandChange) {
+    var sel = document.createElement("select");
+    choix(sel, options.styles); sel.value = valeur;
+    sel.onchange = function () { quandChange(sel.value); };
+    return sel;
+  }
+  function boutonRetirer(liste, i) {
+    var x = document.createElement("button");
+    x.type = "button"; x.className = "retirer"; x.textContent = "Retirer";
+    x.onclick = function () { liste.splice(i, 1); dessinerParties(); };
+    return x;
+  }
+
+  function dessinerParties() {
+    var multi = modeStyle === "plusieurs";
+    $("styles").hidden = multi;
+    $("parties").hidden = !multi; $("ajout-partie").hidden = !multi; $("aide-parties").hidden = !multi;
+    $("texte").hidden = multi && source === "texte";
+    $("compteur").hidden = multi && source === "texte";
+    if (!multi) { estimer(); return; }
+    var boite = $("parties"); boite.innerHTML = "";
+    if (source === "texte") {
+      partiesTexte.forEach(function (p, i) {
+        var d = document.createElement("div"); d.className = "partie";
+        var tete = document.createElement("div"); tete.className = "partie-tete";
+        var n = document.createElement("b"); n.textContent = "Partie " + (i + 1);
+        tete.appendChild(n);
+        tete.appendChild(menuStyle(p.style, function (v) { p.style = v; }));
+        if (partiesTexte.length > 2) { tete.appendChild(boutonRetirer(partiesTexte, i)); }
+        var ta = document.createElement("textarea");
+        ta.value = p.texte; ta.placeholder = "Texte de la partie " + (i + 1) + "…";
+        ta.setAttribute("aria-label", "Texte de la partie " + (i + 1));
+        ta.oninput = function () { p.texte = ta.value; estimer(); };
+        d.appendChild(tete); d.appendChild(ta); boite.appendChild(d);
+      });
+      $("aide-parties").textContent = "Chaque partie est lue avec la voix et l'attitude de son style, " +
+        "puis les parties s'enchaînent dans une seule vidéo. Au moins une phrase par partie (4 s minimum).";
+    } else {
+      partiesAudio.forEach(function (p, i) {
+        var d = document.createElement("div"); d.className = "partie";
+        var tete = document.createElement("div"); tete.className = "partie-tete";
+        var n = document.createElement("b"); n.textContent = "Partie " + (i + 1);
+        var lab = document.createElement("span"); lab.className = "petit"; lab.textContent = "à partir de";
+        var champ = document.createElement("input"); champ.type = "text";
+        champ.value = ecrireTemps(p.debut); champ.disabled = i === 0;
+        champ.setAttribute("aria-label", "Début de la partie " + (i + 1) + " (minutes:secondes)");
+        champ.onchange = function () {
+          var v = lireTemps(champ.value);
+          champ.classList.toggle("invalide", isNaN(v));
+          if (!isNaN(v)) { p.debut = v; champ.value = ecrireTemps(v); }
+        };
+        tete.appendChild(n); tete.appendChild(lab); tete.appendChild(champ);
+        tete.appendChild(menuStyle(p.style, function (v) { p.style = v; }));
+        if (partiesAudio.length > 2 && i > 0) { tete.appendChild(boutonRetirer(partiesAudio, i)); }
+        d.appendChild(tete); boite.appendChild(d);
+      });
+      $("aide-parties").textContent = "Indiquez le moment où chaque style commence, en minutes:secondes " +
+        "(par exemple 0:12). Chaque partie doit durer au moins 4 s." +
+        (dureeAudio ? " Votre audio dure " + ecrireTemps(dureeAudio) + "." : "");
+    }
+    estimer();
+  }
+
+  document.querySelectorAll("#mode-style button").forEach(function (b) {
+    b.onclick = function () {
+      modeStyle = b.dataset.mode;
+      document.querySelectorAll("#mode-style button").forEach(function (x) {
+        x.classList.toggle("on", x === b);
+      });
+      if (modeStyle === "plusieurs" && !partiesTexte[0].texte && $("texte").value.trim()) {
+        partiesTexte[0].texte = $("texte").value.trim();
+      }
+      if (modeStyle === "plusieurs") { partiesTexte[0].style = style; partiesAudio[0].style = style; }
+      dessinerParties();
+    };
+  });
+
+  $("ajout-partie").onclick = function () {
+    var noms = Object.keys(options.styles);
+    if (source === "texte") {
+      if (partiesTexte.length >= 12) { return; }
+      var der = partiesTexte[partiesTexte.length - 1].style;
+      partiesTexte.push({ style: noms[(noms.indexOf(der) + 1) % noms.length], texte: "" });
+    } else {
+      if (partiesAudio.length >= 12) { return; }
+      var dernier = partiesAudio[partiesAudio.length - 1];
+      partiesAudio.push({ style: noms[(noms.indexOf(dernier.style) + 1) % noms.length],
+                          debut: Math.round(dernier.debut + 10) });
+    }
+    dessinerParties();
+  };
 
   /* Le visage : un avatar de la galerie, ou une photo importee. Le choix
      courant tient dans « visageChoisi » : { avatar: id } ou { fichier: File }. */
@@ -311,7 +442,7 @@
       dureeAudio = a.duration;
       $("info-audio").textContent = a.duration.toFixed(1) + " s" +
         (a.duration > options.audio_max_s ? " — au-delà de la limite de " + options.audio_max_s + " s" : "");
-      estimer();
+      dessinerParties();
     };
   };
 
@@ -326,14 +457,30 @@
     var donnees = new FormData();
     if (visageChoisi.avatar) { donnees.append("avatar", visageChoisi.avatar); }
     else { donnees.append("visage", visageChoisi.fichier); }
-    donnees.append("style", style);
+    var parties = null;
+    if (modeStyle === "plusieurs") {
+      if (source === "texte") {
+        var remplies = partiesTexte.filter(function (p) { return p.texte.trim(); });
+        if (remplies.length < 2) { return message("Écrivez au moins deux parties.", true); }
+        parties = remplies.map(function (p) { return { style: p.style, texte: p.texte.trim() }; });
+      } else {
+        for (var k = 1; k < partiesAudio.length; k++) {
+          if (!(partiesAudio[k].debut > partiesAudio[k - 1].debut)) {
+            return message("La partie " + (k + 1) + " doit commencer après la partie " + k + ".", true);
+          }
+        }
+        parties = partiesAudio.map(function (p) { return { style: p.style, debut: p.debut }; });
+      }
+    }
+    donnees.append("style", parties ? parties[0].style : style);
+    if (parties) { donnees.append("parties", JSON.stringify(parties)); }
     donnees.append("source", source);
     donnees.append("titre", $("titre").value);
     donnees.append("qualite", $("qualite").value);
     donnees.append("levres", $("levres").value);
     if (source === "texte") {
-      if (!$("texte").value.trim()) { return message("Écrivez le texte à prononcer.", true); }
-      donnees.append("texte", $("texte").value);
+      if (!parties && !$("texte").value.trim()) { return message("Écrivez le texte à prononcer.", true); }
+      donnees.append("texte", parties ? parties.map(function (p) { return p.texte; }).join("\n") : $("texte").value);
       donnees.append("voix", $("voix").value);
       donnees.append("langue", $("langue").value);
     } else {

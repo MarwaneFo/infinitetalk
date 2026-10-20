@@ -15,6 +15,7 @@ redemarrage du serveur, les travaux en cours sont repris la ou ils etaient.
 import base64
 import hashlib
 import hmac
+import io
 import json
 import math
 import os
@@ -320,7 +321,7 @@ def _ffmpeg():
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def preparer_audio(donnees):
+def preparer_audio(donnees, remplir=True):
     """Tout audio -> WAV 48 kHz mono, complete par du silence si trop court.
 
     Le worker reechantillonne lui-meme a 16 kHz pour analyser la voix, mais
@@ -335,10 +336,11 @@ def preparer_audio(donnees):
         sortie = os.path.join(d, "sortie.wav")
         with open(entree, "wb") as f:
             f.write(donnees)
+        filtre = (["-af", "apad=whole_dur=%.2f" % AUDIO_MIN_S]
+                  if remplir else [])
         r = subprocess.run([_ffmpeg(), "-y", "-v", "error", "-i", entree,
-                            "-ac", "1", "-ar", "48000",
-                            "-af", "apad=whole_dur=%.2f" % AUDIO_MIN_S,
-                            sortie], capture_output=True)
+                            "-ac", "1", "-ar", "48000"] + filtre + [sortie],
+                           capture_output=True)
         if r.returncode or not os.path.exists(sortie):
             raise ValueError("audio illisible : %s"
                              % r.stderr.decode(errors="replace")[:200])
@@ -365,6 +367,82 @@ def delai_job_s(duree_audio):
 
 
 # ------------------------------------------------------------------ pipeline
+PARTIE_MIN_S = 4.0
+
+
+def _voix_par_parties(tid):
+    """Une voix par partie, chacune avec l'expressivite de son style.
+
+    Les parties sont synthetisees en parallele, puis mises bout a bout ; le
+    debut de chacune devient un changement de style. Une partie de moins de
+    PARTIE_MIN_S est rattachee a sa voisine : InfiniteTalk ne sait pas
+    animer moins d'un morceau (3,24 s), et un style de deux secondes ne se
+    verrait pas.
+    """
+    t = lire(tid)
+    parties = t["parties"]
+    for p in parties:
+        if not p.get("job"):
+            entree = {"text": p["texte"], "language": t["langue"],
+                      "voice": t["voix"],
+                      "exaggeration": STYLES[p["style"]]["expressivite"],
+                      "temperature": 0.8, "cfg_weight": 0.5}
+            p["job"] = deposer(CB_ID, CB_CLE, {"input": entree}, "voix")
+            maj(tid, parties=parties, statut="voix")
+    journal(tid, "Synthese de la voix (Chatterbox) : %d parties" % len(parties))
+
+    morceaux, params = [], None
+    for k, p in enumerate(parties):
+        sortie = attendre(tid, CB_ID, CB_CLE, p["job"],
+                          "voix, partie %d/%d" % (k + 1, len(parties)))
+        wav, duree = preparer_audio(base64.b64decode(sortie["audio_base64"]),
+                                    remplir=False)
+        with wave.open(io.BytesIO(wav)) as w:
+            params, images = w.getparams(), w.readframes(w.getnframes())
+        morceaux.append({"style": p["style"], "images": images, "duree": duree})
+
+    gardes = []
+    for k, m in enumerate(morceaux):
+        if m["duree"] < PARTIE_MIN_S and gardes:
+            gardes[-1]["images"] += m["images"]
+            gardes[-1]["duree"] += m["duree"]
+            journal(tid, "Partie %d trop courte (%.1f s) : rattachee a la "
+                    "precedente" % (k + 1, m["duree"]))
+        elif m["duree"] < PARTIE_MIN_S and k + 1 < len(morceaux):
+            morceaux[k + 1]["images"] = m["images"] + morceaux[k + 1]["images"]
+            morceaux[k + 1]["duree"] += m["duree"]
+            journal(tid, "Partie %d trop courte (%.1f s) : rattachee a la "
+                    "suivante" % (k + 1, m["duree"]))
+        else:
+            gardes.append(m)
+
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as w:
+        w.setparams(params)
+        for m in gardes:
+            w.writeframes(m["images"])
+    wav = tampon.getvalue()
+    duree = sum(m["duree"] for m in gardes)
+    if duree < AUDIO_MIN_S:
+        wav, duree = preparer_audio(wav)
+    if duree > AUDIO_MAX_S + 0.5:
+        raise RuntimeError("La voix generee dure %.0f s, au-dela de la limite "
+                           "de %.0f s. Raccourcir le texte."
+                           % (duree, AUDIO_MAX_S))
+
+    debut, nouvelles = 0.0, []
+    for m in gardes:
+        nouvelles.append({"style": m["style"], "debut": round(debut, 3)})
+        debut += m["duree"]
+    with open(os.path.join(TRAVAUX, "%s.wav" % tid), "wb") as f:
+        f.write(wav)
+    maj(tid, audio_pret=True, duree_audio=round(duree, 2),
+        parties=nouvelles if len(nouvelles) > 1 else None,
+        style=nouvelles[0]["style"])
+    journal(tid, "Voix prete : %.1f s, %d style(s)" % (duree, len(nouvelles)))
+    return wav
+
+
 def executer(tid):
     """Texte -> voix (Chatterbox) -> video (InfiniteTalk) -> fichier MP4."""
     try:
@@ -375,6 +453,10 @@ def executer(tid):
         if t.get("audio_pret"):
             with open(os.path.join(TRAVAUX, "%s.wav" % tid), "rb") as f:
                 wav = f.read()
+        elif t["source"] == "texte" and t.get("parties"):
+            if not CB_ID:
+                raise RuntimeError("CHATTERBOX_ENDPOINT non configure.")
+            wav = _voix_par_parties(tid)
         elif t["source"] == "texte":
             if not CB_ID:
                 raise RuntimeError("CHATTERBOX_ENDPOINT non configure.")
@@ -459,8 +541,8 @@ def _silences(chemin):
     return milieux
 
 
-def decouper(chemin, duree):
-    """Bornes des segments, en secondes, alignees sur les images.
+def _decouper_plage(silences, a, b):
+    """Bornes des segments dans [a, b], en secondes, alignees sur les images.
 
     Le nombre de segments est le plus petit qui respecte SEG_MAX_S, et les
     coupes visent des segments de meme duree : avec 2 workers, deux segments
@@ -470,20 +552,50 @@ def decouper(chemin, duree):
     image entiere (1/25 s) : sinon chaque raccord decalerait le son d'une
     fraction d'image, et sur 15 segments le decalage se verrait.
     """
+    duree = b - a
     if duree <= SEG_MAX_S:
-        return [(0.0, duree)]
+        return [(a, b)]
     n = int(math.ceil(duree / SEG_MAX_S))
-    silences = _silences(chemin)
-    bornes = [0.0]
+    bornes = [a]
     for k in range(1, n):
-        cible = duree * k / n
+        cible = a + duree * k / n
         proches = [m for m in silences
                    if abs(m - cible) <= 6 and m - bornes[-1] >= SEG_MIN_S
-                   and duree - m >= SEG_MIN_S]
+                   and b - m >= SEG_MIN_S]
         coupe = min(proches, key=lambda m: abs(m - cible)) if proches else cible
         bornes.append(round(coupe * IPS) / IPS)
-    bornes.append(duree)
+    bornes.append(b)
     return list(zip(bornes[:-1], bornes[1:]))
+
+
+def decouper(chemin, duree):
+    """Bornes des segments d'une video a un seul style."""
+    if duree <= SEG_MAX_S:
+        return [(0.0, duree)]
+    return _decouper_plage(_silences(chemin), 0.0, duree)
+
+
+def decouper_styles(chemin, duree, parties):
+    """[(debut, fin, style)] pour une video a plusieurs styles.
+
+    Chaque changement de style est un raccord oblige ; il est recale sur le
+    milieu du silence le plus proche (0,8 s de tolerance) pour ne pas couper
+    un mot, puis sur une image entiere. Une partie plus longue que
+    SEG_MAX_S est elle-meme decoupee comme une video ordinaire.
+    """
+    silences = _silences(chemin)
+    bornes = [0.0]
+    for p in parties[1:]:
+        d = float(p["debut"])
+        proches = [m for m in silences if abs(m - d) <= 0.8]
+        coupe = min(proches, key=lambda m: abs(m - d)) if proches else d
+        bornes.append(round(coupe * IPS) / IPS)
+    bornes.append(duree)
+    sortie = []
+    for k, p in enumerate(parties):
+        for a, b in _decouper_plage(silences, bornes[k], bornes[k + 1]):
+            sortie.append((a, b, p["style"]))
+    return sortie
 
 
 def extraire(chemin, debut, fin):
@@ -506,6 +618,7 @@ def extraire(chemin, debut, fin):
 
 
 def _deposer_segment(tid, t, seg, style, image):
+    style = STYLES.get(seg.get("style")) or style
     wav = os.path.join(TRAVAUX, "%s.wav" % tid)
     duree = seg["fin"] - seg["debut"]
     entree = {"audio_base64": base64.b64encode(
@@ -544,12 +657,19 @@ def _video_en_segments(tid, style):
     t = lire(tid)
     if not t.get("segments"):
         wav = os.path.join(TRAVAUX, "%s.wav" % tid)
-        bornes = decouper(wav, t["duree_audio"])
-        segs = [{"i": i, "debut": a, "fin": b, "statut": "attente",
-                 "job": None, "essais": 0} for i, (a, b) in enumerate(bornes)]
+        if t.get("parties"):
+            bornes = decouper_styles(wav, t["duree_audio"], t["parties"])
+        else:
+            bornes = [(a, b, t["style"])
+                      for a, b in decouper(wav, t["duree_audio"])]
+        segs = [{"i": i, "debut": a, "fin": b, "style": st, "statut": "attente",
+                 "job": None, "essais": 0}
+                for i, (a, b, st) in enumerate(bornes)]
         t = maj(tid, segments=segs, statut="video")
         journal(tid, "Animation du visage (InfiniteTalk) : %.1f s d'audio, "
-                "%d segment(s)" % (t["duree_audio"], len(segs)))
+                "%d segment(s)%s" % (t["duree_audio"], len(segs),
+                                     ", %d styles" % len(t["parties"])
+                                     if t.get("parties") else ""))
 
     with open(os.path.join(TRAVAUX, "%s.img" % tid), "rb") as f:
         image = base64.b64encode(f.read()).decode()
@@ -780,6 +900,7 @@ async def creer(
     titre: str = Form(""),
     qualite: str = Form("standard"),
     levres: str = Form("normale"),
+    parties: str = Form(""),
     utilisateur=Depends(verifier),
 ):
     if not (CLE and IT_ID):
@@ -792,6 +913,27 @@ async def creer(
         raise HTTPException(400, "Qualite inconnue.")
     if levres not in LEVRES:
         raise HTTPException(400, "Reglage des levres inconnu.")
+
+    # Plusieurs styles : une liste de parties, chacune avec son style, et
+    # soit son texte, soit le moment ou elle commence dans l'audio.
+    liste = None
+    if parties:
+        try:
+            liste = json.loads(parties)
+        except ValueError:
+            raise HTTPException(400, "Parties illisibles.")
+        if not isinstance(liste, list) or not 2 <= len(liste) <= 12:
+            raise HTTPException(400, "Entre 2 et 12 parties.")
+        for p in liste:
+            if not isinstance(p, dict) or p.get("style") not in STYLES:
+                raise HTTPException(400, "Style de partie inconnu.")
+        style = liste[0]["style"]
+        if source == "texte":
+            if any(not str(p.get("texte") or "").strip() for p in liste):
+                raise HTTPException(400, "Une partie est vide.")
+            liste = [{"style": p["style"], "texte": str(p["texte"]).strip()}
+                     for p in liste]
+            texte = "\n".join(p["texte"] for p in liste)
 
     if avatar:
         # Un visage de la galerie : on lit le fichier cote serveur, jamais
@@ -817,6 +959,7 @@ async def creer(
          "titre": (titre or "").strip()[:80], "style": style,
          "source": source, "statut": "attente", "image_ext": ext,
          "qualite": qualite, "levres": levres, "avatar": avatar or None,
+         "parties": liste,
          "par": utilisateur, "journal": []}
 
     if source == "texte":
@@ -847,6 +990,25 @@ async def creer(
         with open(os.path.join(TRAVAUX, "%s.wav" % tid), "wb") as f:
             f.write(wav)
         t.update(audio_pret=True, duree_audio=round(duree, 2))
+        if liste:
+            try:
+                debuts = [0.0] + [float(p["debut"]) for p in liste[1:]]
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(400, "Moment de debut de partie illisible.")
+            fins = debuts[1:] + [duree]
+            for k, (a, b) in enumerate(zip(debuts, fins)):
+                if b <= a:
+                    raise HTTPException(
+                        400, "Les debuts des parties doivent etre dans "
+                        "l'ordre, et avant la fin de l'audio (%.0f s)."
+                        % duree)
+                if b - a < PARTIE_MIN_S:
+                    raise HTTPException(
+                        400, "La partie %d dure %.1f s : %d s minimum par "
+                        "partie, et les debuts doivent etre dans l'ordre."
+                        % (k + 1, b - a, PARTIE_MIN_S))
+            liste = [{"style": p["style"], "debut": d}
+                     for p, d in zip(liste, debuts)]
 
     with open(os.path.join(TRAVAUX, "%s.img" % tid), "wb") as f:
         f.write(image)
@@ -863,6 +1025,10 @@ def _public(t):
              "gpu", "total_gpu_s", "s_par_seconde", "journal", "par")
     sortie = {k: t[k] for k in garde if k in t}
     sortie["style_nom"] = STYLES.get(t.get("style"), {}).get("nom")
+    if t.get("parties"):
+        sortie["style_nom"] = " → ".join(
+            STYLES.get(p["style"], {}).get("nom", "?").split(" /")[0]
+            for p in t["parties"])
     sortie["qualite_nom"] = QUALITES.get(t.get("qualite"), QUALITES["standard"])["nom"]
     sortie["levres_nom"] = "lèvres " + LEVRES.get(t.get("levres"), LEVRES["normale"])["nom"].lower()
     if t.get("segments"):
