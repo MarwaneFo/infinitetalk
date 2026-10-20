@@ -1007,7 +1007,7 @@ def _diagnostic(entree):
             # Ce que le worker applique vraiment, variable ou defaut de
             # l'image : permet de verifier qu'une mise a jour est en place.
             "delestage_defaut_go": 8,
-            "version": "delestage-reel",
+            "version": "encodage-par-paquets",
             "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
             "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
             "IT_LORA": os.environ.get("IT_LORA")}
@@ -1023,9 +1023,13 @@ def _encoder_mp4(video, audio, sortie, crf=16, fps=25):
     fichier (+faststart) pour une lecture immediate dans le navigateur.
     """
     import numpy as np
-    images = ((video.float().clamp(-1, 1) + 1) * 127.5).round()
-    images = images.to(torch_uint8()).permute(1, 2, 3, 0).cpu().numpy()
-    n, h, l, _ = images.shape
+    import torch
+    # Les images sont converties et envoyees a ffmpeg par paquets de 25.
+    # Convertir la video entiere d'un coup creait plusieurs copies en
+    # float32 : 4 Go chacune pour 32 s en 576x704. Sur un worker de 62 Go
+    # de RAM, le conteneur etait tue pendant l'encodage d'un segment de
+    # 32 s (constate le 20/10), et RunPod relancait tout le segment.
+    _, n, h, l = video.shape
     commande = [
         "ffmpeg", "-y", "-v", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (l, h),
@@ -1037,11 +1041,20 @@ def _encoder_mp4(video, audio, sortie, crf=16, fps=25):
         "-c:a", "aac", "-b:a", "192k",
         "-t", "%.3f" % (n / float(fps)),
         "-movflags", "+faststart", sortie]
-    proc = subprocess.run(commande, input=np.ascontiguousarray(images).tobytes(),
-                          capture_output=True)
-    if proc.returncode:
-        raise RuntimeError("ffmpeg : %s"
-                           % proc.stderr.decode(errors="replace")[-400:])
+    proc = subprocess.Popen(commande, stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        for debut in range(0, n, 25):
+            paquet = video[:, debut:debut + 25].float()
+            paquet = paquet.clamp_(-1, 1).add_(1).mul_(127.5).round_()
+            paquet = paquet.to(torch.uint8).permute(1, 2, 3, 0).cpu()
+            proc.stdin.write(np.ascontiguousarray(paquet.numpy()).tobytes())
+        proc.stdin.close()
+    except BrokenPipeError:
+        pass
+    erreur = proc.stderr.read()
+    if proc.wait():
+        raise RuntimeError("ffmpeg : %s" % erreur.decode(errors="replace")[-400:])
 
 
 def torch_uint8():
