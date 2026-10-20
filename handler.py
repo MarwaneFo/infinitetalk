@@ -391,7 +391,10 @@ def _delester(pipeline):
         valeur = "all"
     if valeur is None:
         vram = torch.cuda.get_device_properties(0).total_memory / 1e9
-        valeur = "12" if vram < 60 else "0"
+        # 12 Go suffisaient pour une image paysage (448x896), pas pour une
+        # photo presque carree (576x704) : OOM au decodage du 1er morceau,
+        # 42,75 Go alloues (Ayoub, 20/10). 16 Go laissent ~4 Go de marge.
+        valeur = "16" if vram < 60 else "0"
     if valeur == "0":
         return
 
