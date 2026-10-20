@@ -48,8 +48,8 @@ UTILISATEUR = os.environ.get("SITE_USER", "studio")
 
 # Garde-fous de cout. Un morceau de 81 images (3,24 s) coute ~7 min de L40S :
 # une minute d'audio, c'est deja deux heures de GPU.
-AUDIO_MAX_S = float(os.environ.get("AUDIO_MAX_S", "60"))
-TEXTE_MAX = int(os.environ.get("TEXTE_MAX", "900"))
+AUDIO_MAX_S = float(os.environ.get("AUDIO_MAX_S", "70"))
+TEXTE_MAX = int(os.environ.get("TEXTE_MAX", "1050"))
 # InfiniteTalk refuse un audio qui ne depasse pas un morceau (81 images a
 # 25 i/s, soit 3,24 s) : l'assertion amont exige strictement plus.
 AUDIO_MIN_S = 3.3
