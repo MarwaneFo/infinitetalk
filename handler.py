@@ -392,10 +392,9 @@ def _delester(pipeline):
         valeur = "all"
     if valeur is None:
         vram = torch.cuda.get_device_properties(0).total_memory / 1e9
-        # 12 Go suffisaient pour une image paysage (448x896), pas pour une
-        # photo presque carree (576x704) : OOM au decodage du 1er morceau,
-        # 42,75 Go alloues (Ayoub, 20/10). 16 Go laissent ~4 Go de marge.
-        valeur = "16" if vram < 60 else "0"
+        # 8 Go reellement en RAM (voir plus bas) : bien plus que les ~0,9 Go
+        # qui manquaient au decodage sur une photo presque carree.
+        valeur = "8" if vram < 60 else "0"
     if valeur == "0":
         return
 
@@ -406,8 +405,21 @@ def _delester(pipeline):
         octets = next(pipeline.model.parameters()).element_size()
         persistants = max(0, total - int(float(valeur) * 1e9 / octets))
     pipeline.vram_management = True
+    avant = torch.cuda.memory_allocated() / 1e9
     pipeline.enable_vram_management(num_persistent_param_in_dit=persistants)
+    # Le code amont n'envoie jamais en RAM les couches denses « en
+    # debordement » : leur onload_device et leur offload_device valent tous
+    # deux "cpu", donc onload()/offload() ne font rien, et AutoWrappedLinear
+    # garde le poids la ou il etait -- sur la carte, puisque le modele y est
+    # charge. Le delestage etait sans effet : 39,2 Go alloues a 6, 12 ou
+    # 16 Go demandes. On les y envoie donc nous-memes.
+    for module in pipeline.model.modules():
+        if str(getattr(module, "onload_device", "")) == "cpu":
+            module.to("cpu")
     torch.cuda.empty_cache()
+    apres = torch.cuda.memory_allocated() / 1e9
+    print("[init] delestage effectif : %.1f Go -> %.1f Go sur la carte"
+          % (avant, apres), flush=True)
     _ETAT["delestage_go"] = valeur
     print("[init] delestage DiT : %.1f G parametres sur %.1f restent en VRAM"
           % (persistants / 1e9, total / 1e9), flush=True)
@@ -994,8 +1006,8 @@ def _diagnostic(entree):
             "IT_DELESTAGE_GO": os.environ.get("IT_DELESTAGE_GO"),
             # Ce que le worker applique vraiment, variable ou defaut de
             # l'image : permet de verifier qu'une mise a jour est en place.
-            "delestage_defaut_go": 16,
-            "version": "decodage-sur",
+            "delestage_defaut_go": 8,
+            "version": "delestage-reel",
             "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
             "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
             "IT_LORA": os.environ.get("IT_LORA")}
