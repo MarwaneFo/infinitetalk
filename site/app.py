@@ -68,7 +68,7 @@ API = "https://api.runpod.ai/v2"
 # l'attitude), et l'expressivite de Chatterbox quand la voix est synthetisee.
 STYLES = {
     "serieux": {
-        "nom": "Serieux / professionnel",
+        "nom": "Sérieux / professionnel",
         "invite": "A person speaks directly to the camera in a calm, "
                   "professional and composed manner, neutral expression, "
                   "minimal head movement, steady framing, soft even studio "
@@ -90,7 +90,7 @@ STYLES = {
         "expressivite": 0.85,
     },
     "pedagogue": {
-        "nom": "Bienveillant / pedagogue",
+        "nom": "Bienveillant / pédagogue",
         "invite": "A friendly teacher speaks kindly to the camera, calm and "
                   "reassuring, warm eyes, slow natural nods, patient and "
                   "attentive expression, soft classroom lighting.",
@@ -110,6 +110,53 @@ STYLES = {
                   "the camera, engaging confident smile, lively but controlled "
                   "expressions, inviting nods, open friendly attitude, bright "
                   "polished lighting.",
+        "expressivite": 0.70,
+    },
+    "calme": {
+        "nom": "Calme / apaisant",
+        "invite": "A person speaks softly and calmly to the camera, serene and "
+                  "soothing presence, relaxed face, very gentle slow head "
+                  "movements, slow blinking, warm diffused lighting, steady "
+                  "framing.",
+        "expressivite": 0.30,
+    },
+    "narrateur": {
+        "nom": "Narrateur / conteur",
+        "invite": "A storyteller speaks to the camera with captivating "
+                  "expression, eyes that follow the story, expressive eyebrows, "
+                  "natural pauses and nods, engaged and immersive attitude, "
+                  "cinematic soft lighting.",
+        "expressivite": 0.75,
+    },
+    "coach": {
+        "nom": "Coach / motivant",
+        "invite": "A motivating coach speaks to the camera with positive energy "
+                  "and conviction, encouraging smile, determined gaze, firm "
+                  "confident nods, upright posture, bright energetic lighting.",
+        "expressivite": 0.90,
+    },
+    "presentateur": {
+        "nom": "Présentateur / journaliste",
+        "invite": "A television news presenter speaks clearly and articulately "
+                  "to the camera, neutral attentive expression, steady posture, "
+                  "controlled precise head movements, crisp professional studio "
+                  "lighting.",
+        "expressivite": 0.40,
+    },
+    "empathique": {
+        "nom": "Empathique / à l'écoute",
+        "invite": "A caring person speaks to the camera with empathy and "
+                  "understanding, soft compassionate expression, gentle "
+                  "concerned eyes, slow reassuring nods, calm and warm attitude, "
+                  "soft lighting.",
+        "expressivite": 0.50,
+    },
+    "decontracte": {
+        "nom": "Décontracté / complice",
+        "invite": "A relaxed friendly person speaks casually to the camera like "
+                  "talking to a friend, easy natural smile, playful expressions, "
+                  "loose natural head movements, laid-back attitude, warm "
+                  "natural lighting.",
         "expressivite": 0.70,
     },
 }
