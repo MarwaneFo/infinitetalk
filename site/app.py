@@ -575,27 +575,24 @@ def decouper(chemin, duree):
     return _decouper_plage(_silences(chemin), 0.0, duree)
 
 
-def decouper_styles(chemin, duree, parties):
-    """[(debut, fin, style)] pour une video a plusieurs styles.
+def invites_du_segment(parties, a, b):
+    """Les styles actifs dans le segment [a, b], dates depuis son debut.
 
-    Chaque changement de style est un raccord oblige ; il est recale sur le
-    milieu du silence le plus proche (0,8 s de tolerance) pour ne pas couper
-    un mot, puis sur une image entiere. Une partie plus longue que
-    SEG_MAX_S est elle-meme decoupee comme une video ordinaire.
+    Le worker change d'invite d'un morceau au suivant, dans le meme calcul :
+    chaque morceau repart des dernieres images du precedent, donc le
+    mouvement continue et l'attitude evolue sur ~3 s. Les anciens raccords
+    a chaque changement de style faisaient repartir la video de la photo
+    (« l'action s'arrete et recommence », 21/10).
     """
-    silences = _silences(chemin)
-    bornes = [0.0]
-    for p in parties[1:]:
-        d = float(p["debut"])
-        proches = [m for m in silences if abs(m - d) <= 0.8]
-        coupe = min(proches, key=lambda m: abs(m - d)) if proches else d
-        bornes.append(round(coupe * IPS) / IPS)
-    bornes.append(duree)
-    sortie = []
+    actives = []
     for k, p in enumerate(parties):
-        for a, b in _decouper_plage(silences, bornes[k], bornes[k + 1]):
-            sortie.append((a, b, p["style"]))
-    return sortie
+        fin_p = parties[k + 1]["debut"] if k + 1 < len(parties) else float("inf")
+        if fin_p <= a or p["debut"] >= b:
+            continue
+        actives.append({"debut_s": round(max(0.0, float(p["debut"]) - a), 3),
+                        "prompt": STYLES[p["style"]]["invite"],
+                        "style": p["style"]})
+    return actives
 
 
 def extraire(chemin, debut, fin):
@@ -631,6 +628,8 @@ def _deposer_segment(tid, t, seg, style, image):
               # Exactement le nombre d'images du segment : les raccords
               # restent alignes sur la voix.
               "max_frame_num": max(1, int(round(duree * IPS)))}
+    if seg.get("invites"):
+        entree["prompts"] = seg["invites"]
     qualite = QUALITES.get(t.get("qualite"), QUALITES["standard"])
     entree.update(qualite["reglages"])
     entree["audio_guide_scale"] = LEVRES.get(
@@ -657,14 +656,17 @@ def _video_en_segments(tid, style):
     t = lire(tid)
     if not t.get("segments"):
         wav = os.path.join(TRAVAUX, "%s.wav" % tid)
-        if t.get("parties"):
-            bornes = decouper_styles(wav, t["duree_audio"], t["parties"])
-        else:
-            bornes = [(a, b, t["style"])
-                      for a, b in decouper(wav, t["duree_audio"])]
-        segs = [{"i": i, "debut": a, "fin": b, "style": st, "statut": "attente",
-                 "job": None, "essais": 0}
-                for i, (a, b, st) in enumerate(bornes)]
+        segs = []
+        for i, (a, b) in enumerate(decouper(wav, t["duree_audio"])):
+            seg = {"i": i, "debut": a, "fin": b, "style": t["style"],
+                   "statut": "attente", "job": None, "essais": 0}
+            if t.get("parties"):
+                invites = invites_du_segment(t["parties"], a, b)
+                seg["style"] = invites[0]["style"]
+                if len(invites) > 1:
+                    seg["invites"] = [{"debut_s": v["debut_s"], "prompt": v["prompt"]}
+                                      for v in invites]
+            segs.append(seg)
         t = maj(tid, segments=segs, statut="video")
         journal(tid, "Animation du visage (InfiniteTalk) : %.1f s d'audio, "
                 "%d segment(s)%s" % (t["duree_audio"], len(segs),

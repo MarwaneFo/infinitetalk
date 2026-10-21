@@ -242,6 +242,7 @@ def _charger():
 
     _ETAT["gpu"] = _garde_gpu()
 
+    _permettre_changement_d_invite()
     import wan
     from wan.configs import WAN_CONFIGS
     import generate_infinitetalk as gi
@@ -304,6 +305,65 @@ def _publier(message):
             runpod.serverless.progress_update(_SUIVI["job"], message)
         except Exception as exc:
             print("[suivi] progress_update a echoue : %s" % exc, flush=True)
+
+
+def _permettre_changement_d_invite():
+    """Permet a l'invite de changer d'un morceau a l'autre d'une meme video.
+
+    Le code amont encode l'invite une fois, avant la boucle des morceaux.
+    Chaque morceau repart des dernieres images du precedent : changer
+    l'invite entre deux morceaux change l'attitude sans couper le
+    mouvement, la ou deux segments recolles repartaient chacun de la photo
+    (« l'action s'arrete et recommence », remarque du 21/10).
+
+    Une ligne est inseree en tete de la boucle : si le pipeline porte une
+    fonction _contexte_par_image, elle fournit l'encodage du texte du
+    morceau qui commence. Sans elle, rien ne change.
+    """
+    chemin = os.path.join(INFINITETALK_ROOT, "wan", "multitalk.py")
+    with open(chemin, encoding="utf-8") as f:
+        source = f.read()
+    if "_contexte_par_image" in source:
+        return
+    ancre = "        while True:\n            audio_embs = []\n"
+    if source.count(ancre) != 1:
+        raise RuntimeError("wan/multitalk.py : boucle des morceaux introuvable, "
+                           "changement d'invite impossible")
+    source = source.replace(ancre, (
+        "        while True:\n"
+        "            _ctx = getattr(self, '_contexte_par_image', None)\n"
+        "            if _ctx is not None:\n"
+        "                context = _ctx(audio_start_idx, context)\n"
+        "            audio_embs = []\n"))
+    with open(chemin, "w", encoding="utf-8") as f:
+        f.write(source)
+    print("[init] changement d'invite par morceau active", flush=True)
+
+
+def _contextes_par_invite(pipeline, invites):
+    """Fonction (image de debut du morceau, contexte) -> contexte a utiliser.
+
+    invites : [{"debut_s": 0.0, "prompt": "..."}, ...], tries. Un morceau
+    prend l'invite active en son milieu (40 images apres son debut) : le
+    changement d'attitude tombe ainsi au plus pres du moment demande.
+    """
+    import torch
+    invites = sorted(invites, key=lambda i: float(i["debut_s"]))
+    cache = {}
+
+    def contexte(debut_image, defaut):
+        t = (debut_image + 40) / 25.0
+        actif = invites[0]["prompt"]
+        for inv in invites:
+            if float(inv["debut_s"]) <= t:
+                actif = inv["prompt"]
+        if actif not in cache:
+            with torch.no_grad():
+                cache[actif] = pipeline.text_encoder([actif], pipeline.device)[0]
+            _publier("style du morceau : %s" % actif[:60])
+        return cache[actif]
+
+    return contexte
 
 
 def _installer_suivi():
@@ -1007,7 +1067,7 @@ def _diagnostic(entree):
             # Ce que le worker applique vraiment, variable ou defaut de
             # l'image : permet de verifier qu'une mise a jour est en place.
             "delestage_defaut_go": 8,
-            "version": "encodage-par-paquets",
+            "version": "styles-continus",
             "IT_T5_CPU": os.environ.get("IT_T5_CPU"),
             "IT_MODE_POIDS": os.environ.get("IT_MODE_POIDS", "compact"),
             "IT_LORA": os.environ.get("IT_LORA")}
@@ -1203,22 +1263,30 @@ def handler(job):
             _publier("diffusion : %d morceau(x) de %d pas prevus"
                      % (_SUIVI["prevus"], args.sample_steps))
             depart = time.time()
-            video = _ETAT["pipeline"].generate_infinitetalk(
-                clip,
-                size_buckget=args.size,
-                motion_frame=args.motion_frame,
-                frame_num=args.frame_num,
-                shift=args.sample_shift,
-                sampling_steps=args.sample_steps,
-                text_guide_scale=args.sample_text_guide_scale,
-                audio_guide_scale=args.sample_audio_guide_scale,
-                seed=args.base_seed,
-                offload_model=args.offload_model,
-                max_frames_num=(args.frame_num if mode == "clip"
-                                else args.max_frame_num),
-                color_correction_strength=args.color_correction_strength,
-                extra_args=args,
-            )
+            pipeline = _ETAT["pipeline"]
+            invites = entree.get("prompts") or []
+            if len(invites) > 1:
+                pipeline._contexte_par_image = _contextes_par_invite(pipeline, invites)
+                clip["prompt"] = sorted(invites, key=lambda i: float(i["debut_s"]))[0]["prompt"]
+            try:
+                video = pipeline.generate_infinitetalk(
+                    clip,
+                    size_buckget=args.size,
+                    motion_frame=args.motion_frame,
+                    frame_num=args.frame_num,
+                    shift=args.sample_shift,
+                    sampling_steps=args.sample_steps,
+                    text_guide_scale=args.sample_text_guide_scale,
+                    audio_guide_scale=args.sample_audio_guide_scale,
+                    seed=args.base_seed,
+                    offload_model=args.offload_model,
+                    max_frames_num=(args.frame_num if mode == "clip"
+                                    else args.max_frame_num),
+                    color_correction_strength=args.color_correction_strength,
+                    extra_args=args,
+                )
+            finally:
+                pipeline._contexte_par_image = None
             etapes["diffusion"] = round(time.time() - depart, 1)
 
             # --- ecriture du MP4 et retour
