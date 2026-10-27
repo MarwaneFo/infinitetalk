@@ -159,6 +159,73 @@ STYLES = {
                   "natural lighting.",
         "expressivite": 0.70,
     },
+    # Triste et Heureux sont faits pour s'enchainer dans une meme video :
+    # l'eclairage reste le meme des deux cotes, seul le visage change.
+    "triste": {
+        "nom": "Triste / ému",
+        "invite": "A sad person speaks quietly to the camera, melancholic "
+                  "expression, downcast eyes, slightly furrowed brows, "
+                  "corners of the mouth turned down, slow heavy head "
+                  "movements, occasionally looking down, subdued posture, "
+                  "soft lighting.",
+        "expressivite": 0.35,
+    },
+    "heureux": {
+        "nom": "Heureux / joyeux",
+        "invite": "A joyful person speaks happily to the camera with a big "
+                  "bright genuine smile, sparkling eyes, raised cheeks, "
+                  "cheerful lively head movements and nods, radiant happy "
+                  "expression, upright open posture, soft lighting.",
+        "expressivite": 0.85,
+    },
+    # Trois emotions de plus, pour que la detection automatique ait de quoi
+    # suivre un texte qui passe par la surprise, l'inquietude ou la fermete.
+    "surpris": {
+        "nom": "Surpris / étonné",
+        "invite": "A surprised person speaks to the camera with an astonished "
+                  "expression, wide open eyes, raised eyebrows, mouth opening "
+                  "in amazement, quick lively head movements, curious "
+                  "attentive attitude, soft lighting.",
+        "expressivite": 0.85,
+    },
+    "inquiet": {
+        "nom": "Inquiet / préoccupé",
+        "invite": "A worried person speaks to the camera with a concerned "
+                  "expression, tense furrowed brows, uneasy glances, lips "
+                  "pressed together between phrases, small hesitant head "
+                  "movements, anxious attitude, soft lighting.",
+        "expressivite": 0.45,
+    },
+    "determine": {
+        "nom": "Déterminé / ferme",
+        "invite": "A determined person speaks firmly to the camera with "
+                  "strong conviction, intense steady gaze, set jaw, serious "
+                  "focused expression, firm decisive nods, upright solid "
+                  "posture, soft lighting.",
+        "expressivite": 0.70,
+    },
+}
+
+# Ce que chaque style exprime, en mots simples : sert a la detection des
+# emotions (Claude choisit un style a partir de ces descriptions).
+EMOTIONS = {
+    "serieux": "neutre, factuel, professionnel",
+    "souriant": "aimable, legerement positif",
+    "enthousiaste": "enthousiasme, excitation, bonne nouvelle annoncee avec energie",
+    "pedagogue": "explication bienveillante, conseil",
+    "expert": "assurance, competence, affirmation technique",
+    "commercial": "persuasion, offre, appel a l'action",
+    "calme": "apaisement, serenite, lenteur",
+    "narrateur": "recit, histoire racontee",
+    "coach": "motivation, encouragement, depassement",
+    "presentateur": "annonce neutre d'informations",
+    "empathique": "compassion, comprehension, reconfort",
+    "decontracte": "familiarite, humour leger, complicite",
+    "triste": "tristesse, chagrin, regret, deuil, deception",
+    "heureux": "joie, bonheur, fierte, celebration",
+    "surpris": "surprise, etonnement, incredulite",
+    "inquiet": "inquietude, peur, doute, stress",
+    "determine": "fermete, colere maitrisee, resolution, exigence",
 }
 
 VOIX = {"inna": "Inna (feminine)", "mehdi": "Mehdi (masculine)",
@@ -933,7 +1000,189 @@ def options(_=Depends(verifier)):
             "qualites": {k: v["nom"] for k, v in QUALITES.items()},
             "levres": {k: v["nom"] for k, v in LEVRES.items()},
             "segment_s": SEG_CIBLE_S,
-            "voix_disponible": bool(CB_ID)}
+            "voix_disponible": bool(CB_ID),
+            "emotions_claude": bool(CLE_CLAUDE)}
+
+
+# ------------------------------------------------------- detection d'emotions
+# Un texte qui passe d'une emotion a l'autre est coupe en parties, chacune
+# avec le style qui lui va ; la page pre-remplit l'editeur « Plusieurs
+# styles » et l'utilisateur corrige avant de lancer. Avec une cle Anthropic,
+# Claude lit le texte (~0,01 $ par texte) ; sans cle, une liste de mots-cles
+# fait un premier jet, plus grossier.
+CLE_CLAUDE = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+MODELE_CLAUDE = os.environ.get("CLAUDE_MODELE", "claude-opus-5-5")
+# ~15 caracteres par seconde de parole : 4 s de partie minimum.
+PARTIE_MIN_CAR = 60
+
+CONSIGNE_EMOTIONS = """Tu prepares la video d'un avatar qui lit un texte. \
+Son attitude (visage, regard, voix) suit un style, et le style peut changer \
+d'une partie du texte a l'autre.
+
+Decoupe le texte en parties consecutives selon l'emotion exprimee, et donne \
+a chaque partie le style qui lui correspond le mieux. Regles :
+- recopie le texte mot pour mot, sans rien ajouter, retirer ni corriger : \
+mises bout a bout, les parties redonnent le texte entier ;
+- coupe seulement entre deux phrases, et seulement quand l'emotion change \
+vraiment ; deux parties voisines n'ont jamais le meme style ;
+- chaque partie fait au moins une phrase complete d'environ 60 caracteres ;
+- 12 parties au plus ; un texte d'une seule emotion donne une seule partie.
+
+Styles disponibles (cle : ce qu'il exprime) :
+"""
+
+
+def _phrases(texte):
+    """Le texte en phrases, ponctuation et espaces gardes."""
+    morceaux, debut = [], 0
+    for k, c in enumerate(texte):
+        fin_phrase = c in ".!?…" and (k + 1 == len(texte) or texte[k + 1].isspace())
+        if fin_phrase or c == "\n":
+            if texte[debut:k + 1].strip():
+                morceaux.append(texte[debut:k + 1].strip())
+            debut = k + 1
+    if texte[debut:].strip():
+        morceaux.append(texte[debut:].strip())
+    return morceaux
+
+
+def _fusionner(parties, a, b):
+    """Colle la partie b a la partie a (voisines), garde le style de a."""
+    i, j = sorted((a, b))
+    parties[i]["texte"] += " " + parties[j]["texte"]
+    parties[i]["style"] = parties[a]["style"]
+    del parties[j]
+
+
+def _regrouper(parties):
+    """Fusionne les voisines de meme style, puis les parties trop courtes
+    (moins de 4 s) dans leur voisine, et s'arrete a 12 parties."""
+    parties = [dict(p) for p in parties]
+    while True:
+        k = next((i for i in range(1, len(parties))
+                  if parties[i]["style"] == parties[i - 1]["style"]), None)
+        if k is not None:
+            _fusionner(parties, k - 1, k)
+            continue
+        courtes = [i for i, p in enumerate(parties)
+                   if len(p["texte"]) < PARTIE_MIN_CAR]
+        if len(parties) > 1 and (courtes or len(parties) > 12):
+            k = courtes[0] if courtes else min(
+                range(len(parties)), key=lambda i: len(parties[i]["texte"]))
+            # La partie absorbee prend le style de sa voisine precedente.
+            _fusionner(parties, k - 1 if k > 0 else 1, k)
+            continue
+        return parties
+
+
+def _emotions_claude(texte):
+    import anthropic
+
+    styles = "\n".join("- %s : %s" % (k, EMOTIONS.get(k, v["nom"]))
+                       for k, v in STYLES.items())
+    schema = {
+        "type": "object",
+        "properties": {"parties": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"texte": {"type": "string"},
+                           "style": {"type": "string", "enum": list(STYLES)}},
+            "required": ["texte", "style"],
+            "additionalProperties": False}}},
+        "required": ["parties"],
+        "additionalProperties": False,
+    }
+    client = anthropic.Anthropic(api_key=CLE_CLAUDE)
+    reponse = client.beta.messages.create(
+        model=MODELE_CLAUDE,
+        max_tokens=16000,
+        system=CONSIGNE_EMOTIONS + styles,
+        messages=[{"role": "user", "content": texte}],
+        output_config={"effort": "low",
+                       "format": {"type": "json_schema", "schema": schema}},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",
+    )
+    if reponse.stop_reason != "end_turn":
+        raise RuntimeError("reponse incomplete (%s)" % reponse.stop_reason)
+    brut = next(b.text for b in reponse.content if b.type == "text")
+    parties = [{"texte": str(p["texte"]).strip(), "style": p["style"]}
+               for p in json.loads(brut)["parties"]
+               if str(p.get("texte", "")).strip() and p.get("style") in STYLES]
+    # Claude ne doit rien reecrire : si le texte recompose differe, on garde
+    # quand meme son decoupage mais on le signale.
+    meme = " ".join(" ".join(p["texte"] for p in parties).split()) == \
+        " ".join(texte.split())
+    return parties, meme
+
+
+# Repli sans cle : des mots qui trahissent une emotion, en francais.
+MOTS_EMOTIONS = {
+    "triste": ["triste", "tristesse", "malheureusement", "hélas", "helas",
+               "regrette", "regret", "chagrin", "deuil", "perdu", "perte",
+               "décès", "deces", "pleur", "larme", "douleur", "souffr",
+               "déçu", "decu", "déception", "deception", "manque", "seul",
+               "difficile", "dur moment", "nous a quittés", "disparu"],
+    "heureux": ["heureux", "heureuse", "joie", "joyeux", "ravi", "ravie",
+                "content", "bonheur", "félicit", "felicit", "bravo",
+                "génial", "genial", "formidable", "merveilleux", "super",
+                "fier", "fière", "célébr", "celebr", "fête", "fete",
+                "excellente nouvelle", "bonne nouvelle", "merci"],
+    "surpris": ["incroyable", "surpris", "surprise", "étonn", "etonn",
+                "imaginez", "qui l'aurait cru", "jamais vu", "waouh", "wow",
+                "oh !", "vraiment ?", "inattendu"],
+    "inquiet": ["inquiet", "inquiète", "inquiétude", "peur", "crains",
+                "crainte", "danger", "risque", "attention", "menace",
+                "stress", "angoiss", "doute", "problème", "probleme",
+                "alerte", "urgent"],
+    "determine": ["inacceptable", "assez", "plus jamais", "il faut",
+                  "nous devons", "exige", "colère", "colere", "refuse",
+                  "nous allons", "je m'engage", "sans relâche", "ensemble"],
+    "empathique": ["je comprends", "nous comprenons", "pensées", "soutien",
+                   "courage", "vous n'êtes pas seul", "à vos côtés",
+                   "a vos cotes", "prenez soin"],
+    "enthousiaste": ["!", "découvrez", "decouvrez", "nouveau", "nouvelle",
+                     "lancement", "enfin"],
+}
+
+
+def _emotions_mots(texte, defaut):
+    parties = []
+    for phrase in _phrases(texte):
+        bas = phrase.lower()
+        scores = {k: sum(bas.count(m) for m in mots)
+                  for k, mots in MOTS_EMOTIONS.items()}
+        # Le point d'exclamation seul ne suffit pas a l'enthousiasme.
+        scores["enthousiaste"] -= 0.5
+        meilleur = max(scores, key=scores.get)
+        parties.append({"texte": phrase,
+                        "style": meilleur if scores[meilleur] > 0 else defaut})
+    return parties
+
+
+@app.post("/api/emotions")
+def detecter_emotions(texte: str = Form(...), style: str = Form("serieux"),
+                      _=Depends(verifier)):
+    texte = texte.strip()
+    if not texte:
+        raise HTTPException(400, "Le texte est vide.")
+    if len(texte) > TEXTE_MAX:
+        raise HTTPException(400, "Texte trop long (%d caracteres max)." % TEXTE_MAX)
+    defaut = style if style in STYLES else "serieux"
+    note = ""
+    parties, methode = None, "mots-cles"
+    if CLE_CLAUDE:
+        try:
+            parties, fidele = _emotions_claude(texte)
+            methode = "claude"
+            if not fidele:
+                note = "Relisez les parties : le texte a pu etre legerement modifie."
+        except Exception as e:  # cle invalide, reseau, quota : on se replie
+            print("[emotions] Claude indisponible : %r" % e, flush=True)
+            note = "Claude indisponible, detection par mots-cles."
+    if not parties:
+        parties = _emotions_mots(texte, defaut)
+    parties = _regrouper(parties)
+    return {"parties": parties, "methode": methode, "note": note}
 
 
 @app.post("/api/travaux")

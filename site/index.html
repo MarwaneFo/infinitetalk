@@ -69,6 +69,8 @@
   .ajouter { background: none; border: 1.5px dashed var(--line); border-radius: 9px; padding: 8px;
              width: 100%; margin-top: 10px; color: var(--accent); font: inherit; cursor: pointer; }
   .ajouter:hover { border-color: var(--accent); }
+  .ajouter.detecter { border-style: solid; color: var(--accent); font-weight: 600; }
+  .ajouter:disabled { opacity: .6; cursor: wait; }
   .invalide { border-color: var(--err) !important; }
   .bascule { display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
              background: var(--bg); border: 1px solid var(--line);
@@ -176,6 +178,7 @@
         </div>
         <div class="styles" id="styles"></div>
         <div class="parties" id="parties" hidden></div>
+        <button type="button" class="ajouter detecter" id="detecter" hidden>D&eacute;tecter les &eacute;motions du texte</button>
         <button type="button" class="ajouter" id="ajout-partie" hidden>+ Ajouter une partie</button>
         <p class="aide" id="aide-parties" hidden></p>
       </div>
@@ -219,7 +222,12 @@
     coach: "Énergie positive, encourageant",
     presentateur: "Clair, neutre, posture TV",
     empathique: "Doux, compréhensif, rassurant",
-    decontracte: "Naturel, amical, détendu"
+    decontracte: "Naturel, amical, détendu",
+    triste: "Mélancolique, regard baissé, voix posée",
+    heureux: "Joyeux, grand sourire, plein d'entrain",
+    surpris: "Yeux grands ouverts, sourcils levés",
+    inquiet: "Sourcils froncés, regard tendu",
+    determine: "Regard fixe, ton ferme, convaincu"
   };
   var source = "texte", style = "serieux", options = null, dureeAudio = null;
   var $ = function (id) { return document.getElementById(id); };
@@ -319,6 +327,7 @@
     var multi = modeStyle === "plusieurs";
     $("styles").hidden = multi;
     $("parties").hidden = !multi; $("ajout-partie").hidden = !multi; $("aide-parties").hidden = !multi;
+    $("detecter").hidden = !multi || source !== "texte";
     $("texte").hidden = multi && source === "texte";
     $("compteur").hidden = multi && source === "texte";
     if (!multi) { estimer(); return; }
@@ -338,7 +347,8 @@
         d.appendChild(tete); d.appendChild(ta); boite.appendChild(d);
       });
       $("aide-parties").textContent = "Chaque partie est lue avec la voix et l'attitude de son style, " +
-        "puis les parties s'enchaînent dans une seule vidéo. Au moins une phrase par partie (4 s minimum).";
+        "puis les parties s'enchaînent dans une seule vidéo. Au moins une phrase par partie (4 s minimum). " +
+        "Astuce : collez tout le texte dans la partie 1 et cliquez « Détecter les émotions ».";
     } else {
       partiesAudio.forEach(function (p, i) {
         var d = document.createElement("div"); d.className = "partie";
@@ -378,6 +388,37 @@
       dessinerParties();
     };
   });
+
+  /* Detection des emotions : le texte entier (les parties mises bout a bout)
+     est envoye au serveur, qui le redecoupe avec un style par emotion. */
+  $("detecter").onclick = async function () {
+    var bouton = $("detecter");
+    var texte = partiesTexte.map(function (p) { return p.texte.trim(); })
+      .filter(Boolean).join("
+");
+    if (!texte) { $("aide-parties").textContent = "Écrivez d'abord le texte dans la partie 1."; return; }
+    bouton.disabled = true; bouton.textContent = "Analyse du texte…";
+    try {
+      var donnees = new FormData();
+      donnees.append("texte", texte); donnees.append("style", partiesTexte[0].style);
+      var r = await fetch("/api/emotions", { method: "POST", body: donnees });
+      var o = await r.json();
+      if (!r.ok) { throw new Error(o.detail || "Erreur " + r.status); }
+      partiesTexte = o.parties.map(function (p) { return { style: p.style, texte: p.texte }; });
+      if (partiesTexte.length < 2) { partiesTexte.push({ style: "souriant", texte: "" }); }
+      dessinerParties();
+      var noms = o.parties.map(function (p) { return options.styles[p.style]; }).join(" → ");
+      $("aide-parties").textContent = (o.parties.length < 2
+        ? "Une seule émotion trouvée (" + noms + "). Vous pouvez découper à la main."
+        : o.parties.length + " parties détectées : " + noms +
+          (o.methode === "claude" ? "" : " (par mots-clés)") + ". Vérifiez avant de lancer." +
+          (o.note ? " " + o.note : ""));
+    } catch (err) {
+      $("aide-parties").textContent = "Détection impossible : " + err.message;
+    } finally {
+      bouton.disabled = false; bouton.textContent = "Détecter les émotions du texte";
+    }
+  };
 
   $("ajout-partie").onclick = function () {
     var noms = Object.keys(options.styles);
