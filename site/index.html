@@ -394,8 +394,7 @@
   $("detecter").onclick = async function () {
     var bouton = $("detecter");
     var texte = partiesTexte.map(function (p) { return p.texte.trim(); })
-      .filter(Boolean).join("
-");
+      .filter(Boolean).join("\n");
     if (!texte) { $("aide-parties").textContent = "Écrivez d'abord le texte dans la partie 1."; return; }
     bouton.disabled = true; bouton.textContent = "Analyse du texte…";
     try {
